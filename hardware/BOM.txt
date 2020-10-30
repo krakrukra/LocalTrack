@@ -1,61 +1,73 @@
-SD_Track_rev2
+LocalTrack_rev1.3 ----------------------- 28.10.2020 (dd.mm.yyyy)
 
-all components, including mechanical ones are available on aliexpress.
+electronic and mechanical parts are available on aliexpress / lcsc
 example links to these items are for information purposes, check
 for offers with better prices and shipping details yourself
 
 quantities specified in this file are pieces per single PCB
 
 
-microSD card --- 1pcs
+STM32F072C8T6 microcontroller --- 1pcs
+W25N01GVZEIG 128MiB flash memory chip --- 1pcs
 
-STM32F030R8T6 microcontroller --- 1pcs
 SIM28 GPS receiver module --- 1pcs
 1575R-A 25x25x4mm GPS patch antenna 1575.42MHz --- 1pcs
+
 MCP1700T-3302E 3.3V LDO voltage regulator --- 1pcs
-MCP73831T-2DCI single li-po cell charge controller IC --- 1pcs
-MMBT3904 BJT signal transistor --- 2pcs
-SMF05C ESD 5V protection diode --- 2pcs
-ADXL345 MEMS accelerometer --- 1pcs
-0805 resistor 4.7 kOhm 5% tolerance --- 9pcs
-0805 resistor 33 Ohm 5% tolerance --- 8pcs
-0805 ceramic capacitor 100nF X7R 10% 50V --- 6pcs
-0805 ceramic capacitor 16pF C0G 5% 50V --- 2pcs
-5032(metric) NX5032GA 8MHz crystal resonator --- 1pcs
-2012(metric) tantalum capacitor 10uF 20% 6.3V --- 5pcs
-0805 LED RED --- 1pcs
-0805 LED GREEN --- 1pcs
-0805 LED BLUE --- 1pcs
+MCP73831T-2DCI single li-po cell charge controller IC --- 2pcs
+SI2302 N-channel mosfet --- 4pcs
+SI2301 P-channel mosfet --- 2pcs
+IP4220CZ6 ESD protection diode --- 2pcs
+ADXL345BCCZ MEMS accelerometer --- 1pcs
+0805 (metric 2012) ceramic capacitor 10uF X5R 10% 10V --- 4pcs
+0603 (metric 1608) ceramic capacitor 100nF X7R 10% 50V --- 9pcs
+0603 (metric 1608) ceramic capacitor 18pF C0G 5% 50V --- 2pcs
+0603 (metric 1608) resistor 100 kOhm 5% tolerance --- 6pcs
+0603 (metric 1608) resistor 10 kOhm 5% tolerance --- 5pcs
+0603 (metric 1608) resistor 1 kOhm 5% tolerance --- 6pcs
+0603 (metric 1608) resistor 33 Ohm 5% tolerance --- 3pcs
+(metric 5032) NX5032GA 8MHz crystal resonator --- 1pcs
+0603 (metric 1608) LED RED --- 1pcs
+0603 (metric 1608) LED GREEN --- 1pcs
+0603 (metric 1608) LED BLUE --- 1pcs
+
+
+5x1 male pin header, vertical, 2.54mm pitch --- 1pcs
+2x1 male pin header, vertical, 2.54mm pitch --- 1pcs (optional)
+
+noname? horizontal micro USB connector --- 1pcs
+    https://www.aliexpress.com/item/32765504799.html?spm=a2g0s.9042311.0.0.27424c4d25ZRpn
+
+8.4mm diameter, 3mm length (without head) rubber plug --- 1pcs
+
+KCD1-11 rocker switch --- 1pcs
+    you can optionally have a waterproof cover as provided via link below
+    https://www.aliexpress.com/item/32629402383.html?spm=2114.12010615.8148356.1.42cc4956SZfa4w
 
 EHAO 3.7V 3000mAh li-po battery 103565 --- 1pcs
-     this battery is glued on to the removable cap and is
-     connected to the board with PH2.0 connector
+    this battery is glued on to the removable lid
+    https://www.aliexpress.com/item/32879938149.html?spm=2114.12010615.8148356.1.24ac47076SXkWI
 
-KCD11 power switch 10x15mm 3A 250V 2 terminals black --- 1pcs
-      this switch is mounted in the enclosure and is
-      connected to the board with PH2.0 connector
+cyllindrical neodymium magnet 20mm diameter, 3mm height --- 6pcs
+    these are glued on to removable lid and may be sealed with a sheet
+    of high permeability material. Battery is then glued on top of that
+    https://www.aliexpress.com/item/32481380280.html?spm=2114.12010615.8148356.1.66705152ENO19u
 
-2.54mm pitch pin header 1x5pins --- 1pcs
-PH2.0 connector plug --- 2pcs
-PH2.0 connector socket --- 2pcs
+KH-F20 plastic enclosure (search aliexpress for 85x58x33mm enclosure), no mounting ears, nontransparent lid --- 1pcs
+    https://www.aliexpress.com/item/32894036224.html?spm=2114.12010615.8148356.1.1ebabbe00pWpPx
 
-noname? vertical micro USB connector --- 1pcs
-	 https://www.aliexpress.com/item/10pcs-Vertical-MICRO-mini-USB-5pin-female-seat-180-degrees-jack-5P-Direct-plug-in-USB/32633184095.html?spm=a2g0s.9042311.0.0.27424c4dy32tMe
+M3 countersunk head screw, 13mm length (without head) --- 4 pcs
+    these should be included together with KH-F20 enclosure from the seller
 
-TFP09-2-12B SD card connector --- 1pcs
-      https://www.aliexpress.com/item/100pcs-9pin-Micro-SD-card-slot-connectors-T-Flash-Common-style-size-14-15mm-TF-card/32800284735.html?spm=a2g0s.9042311.0.0.27424c4dtJM0Vg
+M3 screw, 4mm length (without head) --- 4pcs
+    https://www.aliexpress.com/item/100Pcs-M3-Screw-Diameter-3mm-Length-5mm-M3x5-Stainless-Steel-DIY-New-M3-5mm-Round-head/32599502547.html?spm=a2g0s.9042311.0.0.350b4c4dU1J6kL
 
-OCT24_40 plastic enclosure 85x58x33mm external dimensions (comes with screws) --- 1pcs
-   https://www.aliexpress.com/item/2018-Waterproof-Plastic-Electronic-Project-Cover-Enclosure-Case-Box-85x58x33mm-OCT24-40/32861862412.html?spm=a2g0s.9042311.0.0.27424c4dySt1Ri
+---------------------------------------------------------------------------------------------------
 
-M3 screw 3mm diameter, 5mm length(without head) --- 4pcs
-   https://www.aliexpress.com/item/100Pcs-M3-Screw-Diameter-3mm-Length-5mm-M3x5-Stainless-Steel-DIY-New-M3-5mm-Round-head/32599502547.html?spm=a2g0s.9042311.0.0.350b4c4dU1J6kL
+List of Accessories:
 
-M3 insulation washer --- 4pcs
-   https://www.aliexpress.com/item/C18-100Pcs-New-Red-M3-Flat-Spacer-Washers-Insulation-Gasket-Ring/32606966170.html?spm=a2g0s.9042311.0.0.27424c4dKEQFYX
+charging USB cable (1A or more) with extra long 8mm plug --- 1pcs
+    https://www.aliexpress.com/item/4000791946144.html?spm=a2g0s.9042311.0.0.146f4c4dBIaPAg
 
-20mm diameter, 3mm thickness neodymium magnets --- 6pcs
-     these are glued on to removable cap and can be sealed
-     with a sheet of high permeability material.
-     battery is glued on top of magnets/sealing sheet
-     https://www.aliexpress.com/item/ZHANGYANG-10pcs-lot-20-x-3-mm-Super-Strong-Rare-Earth-Disc-20mm-x-3mm-Fridge/32839422359.html?spm=a2g0s.9042311.0.0.27424c4dbJ8ogx
+USB charger with detachable cable, output current of 1A or more --- 1pcs
+    https://www.aliexpress.com/item/32902054558.html?spm=2114.12010615.8148356.1.7c4955c3AbZBqW

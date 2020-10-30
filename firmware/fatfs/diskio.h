@@ -1,38 +1,56 @@
 #ifndef DISKIO
 #define DISKIO
 
-#include "integer.h"
+/* These types MUST be 16-bit or 32-bit */
+typedef int		INT;
+typedef unsigned int	UINT;
+
+/* This type MUST be 8-bit */
+typedef unsigned char	BYTE;
+
+/* These types MUST be 16-bit */
+typedef short		SHORT;
+typedef unsigned short	WORD;
+typedef unsigned short	WCHAR;
+
+/* These types MUST be 32-bit */
+typedef long		LONG;
+typedef unsigned long	DWORD;
+
+/* This type MUST be 64-bit (Remove this for ANSI C (C89) compatibility) */
+typedef unsigned long long QWORD;
+
 
 /* Status of Disk Functions */
 typedef BYTE	DSTATUS;
 
-/* Disk Status Bits (DSTATUS) */
+/* Results of Disk Functions */
+typedef enum
+{
+  RES_OK = 0,	/* 0: Successful */
+  RES_ERROR,	/* 1: R/W Error */
+  RES_WRPRT,	/* 2: Write Protected */
+  RES_NOTRDY,	/* 3: Not Ready */
+  RES_PARERR	/* 4: Invalid Parameter */
+} DRESULT;
 
+//this structure contains all necessary information for handling disk access operations
+typedef struct
+{  
+  unsigned short LastErasedEB;//index of the last EB that was erased
+  unsigned short BufferPageAddr;//holds physical page address of a page that is currently loaded in internal Data Buffer of W25N01GVZEIG
+  unsigned short PPOmapValidEBI;//holds index of an Erase Block for which PPOmap[] is currently valid
+  unsigned char  PPOmapLastPPO;//holds the biggest valid PPO in PPOmap[] (0 to 63); set to 0xFF if no LPO to PPO links are found at all
+  unsigned char  TransferByte;//used for some DMA transfers as a source/destination (eg. to fill some buffer with 0xFF values)
+  DSTATUS pdrv0_status;//status of physical drive 0
+  volatile unsigned char WritePageFlag;//0 means disk_dmawrite() will only write to internal DataBuffer, nonzero value means write block and save the DataBuffer to flash
+  volatile unsigned char BusyFlag;//0 means no DMA transfers between MCU and W25N01GVZEIG are ongoing, 1 means some transfer is ongoing
+} DiskInfo_TypeDef;
+
+/* Disk Status Bits (DSTATUS) */
 #define STA_NOINIT	0x01  /* Drive not initialized */
 #define STA_NODISK	0x02  /* No medium in the drive */
 #define STA_PROTECT	0x04  /* Write protected */
-
-/* Results of Disk Functions */
-typedef enum {
-	RES_OK = 0,	/* 0: Successful */
-	RES_ERROR,	/* 1: R/W Error */
-	RES_WRPRT,	/* 2: Write Protected */
-	RES_NOTRDY,	/* 3: Not Ready */
-	RES_PARERR	/* 4: Invalid Parameter */
-} DRESULT;
-
-DSTATUS disk_initialize (BYTE pdrv);
-DSTATUS disk_status (BYTE pdrv);
-DRESULT disk_read (BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
-DRESULT disk_write (BYTE pdrv, const BYTE* buff, DWORD sector, UINT count);
-DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
-DWORD get_fattime (void);
-
-unsigned char SD_SendCommand_R1(unsigned char cmd, unsigned int arg, unsigned char crc);
-unsigned short SD_SendCommand_R2(unsigned char cmd, unsigned int arg, unsigned char crc);
-void SD_SendCommand_R3(unsigned char cmd, unsigned int arg, unsigned char crc);
-
-/* Command code for disk_ioctrl fucntion */
 
 /* Generic command (Used by FatFs) */
 #define CTRL_SYNC          0  /* Complete pending write process (needed at FF_FS_READONLY == 0) */
@@ -62,4 +80,20 @@ void SD_SendCommand_R3(unsigned char cmd, unsigned int arg, unsigned char crc);
 #define ATA_GET_MODEL	21  /* Get model name */
 #define ATA_GET_SN	22  /* Get serial number */
 
-#endif
+//chan fatfs interface functions
+DSTATUS disk_initialize (BYTE pdrv);
+DSTATUS disk_status (BYTE pdrv);
+DRESULT disk_read (BYTE pdrv, BYTE* buff, DWORD sector, UINT count);
+DRESULT disk_write (BYTE pdrv, const BYTE* buff, DWORD sector, UINT count);
+DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
+DWORD   get_fattime (void);
+
+//general disk access functions
+void prepare_LB(unsigned int LBaddress, unsigned int LBcount);
+void dmaread_LB (unsigned char* buff, unsigned int sector);
+void dmawrite_LB(unsigned char* buff, unsigned int sector, unsigned char writePageFlag);
+void dma_handler() __attribute__((interrupt));
+void garbage_collect();
+void mass_erase();
+
+#endif //DISKIO

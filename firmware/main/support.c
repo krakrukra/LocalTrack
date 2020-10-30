@@ -1,42 +1,25 @@
-/*-----------------------------------------------------------------------------/
-/ Copyright (C) 2018, krakrukra, all rights reserved.
-/
-/ This is an open source software. Redistribution and use of it in
-/ source and binary forms, with or without modification, are permitted
-/ provided that the following condition is met:
-/
-/ 1. Redistributions of source code must retain the above copyright notice,
-/    this condition and the following disclaimer.
-/
-/ This software is provided by the copyright holder and contributors "AS IS"
-/ and any warranties related to this software are DISCLAIMED.
-/ The copyright holder or contributors SHALL NOT BE LIABLE for any damages
-/ caused by use of this software.
-/-----------------------------------------------------------------------------*/
-
 #include "../cmsis/stm32f0xx.h"
-#include "../fatfs/ff.h"
 
-extern volatile unsigned char need_sleepcheck;
 extern int main();
+extern void dma_handler() __attribute__((interrupt));
 
 static void startup();
 static inline void initialize_data(unsigned int* from, unsigned int* data_start, unsigned int* data_end) __attribute__((always_inline));
 static inline void initialize_bss(unsigned int* bss_start, unsigned int* bss_end) __attribute__((always_inline));
 
 static void default_handler() __attribute__((interrupt));
-static void exti_4_15() __attribute__((interrupt));
+static void rtc_handler() __attribute__((interrupt));
+static void exti4_15() __attribute__((interrupt));
 
 //these symbols are declared in the linker script
-extern unsigned int __data_start__;
-extern unsigned int __data_end__;
-extern unsigned int __bss_start__;
-extern unsigned int __bss_end__;
-extern unsigned int __text_end__;
+extern unsigned int __data_start__;//start of .data section in RAM
+extern unsigned int __data_end__;//end of .data section in RAM
+extern unsigned int __bss_end__;//end of .bss section in RAM
+extern unsigned int __text_end__;//end of .text section in ROM
 
 void* vectorTable[48] __attribute__(( section(".vectab,\"a\",%progbits@") )) =
   {
-    (void*)0x20001FFF,//initial main SP value (8kB RAM size)
+    (void*)0x20003FFC,//initial main SP value (16kB RAM size)
     (void*)&startup,//reset vector
     (void*)&default_handler,//NMI
     (void*)&default_handler,//HardFault
@@ -54,15 +37,15 @@ void* vectorTable[48] __attribute__(( section(".vectab,\"a\",%progbits@") )) =
     (void*)&default_handler,//SysTick
     (void*)0x00000000,//IRQ0
     (void*)0x00000000,//IRQ1
-    (void*)0x00000000,//IRQ2
+    (void*)&rtc_handler,//IRQ2
     (void*)0x00000000,//IRQ3
     (void*)0x00000000,//IRQ4
     (void*)0x00000000,//IRQ5
     (void*)0x00000000,//IRQ6
-    (void*)&exti_4_15,//IRQ7
+    (void*)&exti4_15,//IRQ7
     (void*)0x00000000,//IRQ8
     (void*)0x00000000,//IRQ9
-    (void*)0x00000000,//IRQ10
+    (void*)&dma_handler,//IRQ10
     (void*)0x00000000,//IRQ11
     (void*)0x00000000,//IRQ12
     (void*)0x00000000,//IRQ13
@@ -110,18 +93,22 @@ static inline void initialize_bss(unsigned int* bss_start, unsigned int* bss_end
 //the very first function that the CPU will run
 static void startup()
 {
+  RCC->AHBENR |= (1<<17);//enable GPIOA clock
+  GPIOA->MODER |= (1<<6);//PA3 is output
+  GPIOA->BSRR = (1<<3);//pull PA3 high (SPI1 CS output)
+  
   RCC->CR |= (1<<19)|(1<<16);//enable HSE clock, clock security system
   
   initialize_data(&__text_end__, &__data_start__, &__data_end__);
-  initialize_bss(&__bss_start__, &__bss_end__);
+  initialize_bss(&__data_end__, &__bss_end__);
   
-  while( !(RCC->CR & (1<<17)) );//wait until HSE is ready  
-  RCC->CFGR = (1<<0);//use HSE as system clock
+  while( !(RCC->CR & (1<<17)) );//wait until HSE is ready
+  RCC->CFGR = (1<<0);//set HSE as system clock
   while( !((RCC->CFGR & 0x0F) == 0b0101) );//wait until HSE is used as system clock
   RCC->CR &= ~(1<<0);//disable HSI clock
-
+  
   main();
-
+  
   NVIC_SystemReset();//if main() ever returns reset MCU
   return;
 }
@@ -133,11 +120,16 @@ static void default_handler()
   return;
 }
 
-static void exti_4_15() //ADXL345 activity signal ISR
+//EXTI 20 interrupt is only used to wake up from stop mode
+static void rtc_handler()
 {
-  //this ISR is used as a wakeup interrupt and to initiate periodic sleepcheck and battcheck
-  if(EXTI->PR & (1<<10)) need_sleepcheck = 1;//if falling edge at 1PPS detected
+  EXTI->PR = (1<<20);//clear EXTI line 20 interrupt flag
+  return;
+}
 
-  EXTI->PR = (1<<14)|(1<<10);//clear EXTI pending bits
+//EXTI line 15 interrupt is only used to wake up from stop mode
+static void exti4_15()
+{
+  EXTI->PR = (1<<15);//clear EXTI line 15 interrupt flag
   return;
 }

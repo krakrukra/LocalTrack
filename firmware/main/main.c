@@ -1,403 +1,1068 @@
-/*-----------------------------------------------------------------------------/
-/ Copyright (C) 2018, krakrukra, all rights reserved.
-/
-/ This is an open source software. Redistribution and use of it in
-/ source and binary forms, with or without modification, are permitted
-/ provided that the following condition is met:
-/
-/ 1. Redistributions of source code must retain the above copyright notice,
-/    this condition and the following disclaimer.
-/
-/ This software is provided by the copyright holder and contributors "AS IS"
-/ and any warranties related to this software are DISCLAIMED.
-/ The copyright holder or contributors SHALL NOT BE LIABLE for any damages
-/ caused by use of this software.
-/-----------------------------------------------------------------------------*/
-
 #include "../cmsis/stm32f0xx.h"
+#include "peripherals.h"
 #include "../fatfs/ff.h"
-#include <stdio.h>
-#include <stdlib.h>
+#include "../fatfs/diskio.h"
+#include "../usb/usb.h"
 
-volatile unsigned char need_sleepcheck = 0;//set to 1 by ISR at every 1PPS falling edge
+//regular state check functions
+static void sleepmodeCheck();//check if activity/inactivity signals are present, react accordingly
+static void diskmodeCheck();//if USB cable is connected, ignore incoming NMEA data and only act as USB disk
+static void batteryCheck();//if supply voltage is too low, go to sleepmode until a power reset
+static void processNMEA();//process a specified 512 byte block of NMEA data
 
-static void adxl_init();//initialize ADXL345
-static void adxl_clear();//clear ADXL345 activity/inactivity signals (set lines to 0)
-static void adxl_sleepcheck();//check if ADXL345 activity/inactivity signals are present, react accordingly if they are
-static void adxl_standby();//tell ADXL345 to stop measuremetns and enter standby mode
-static void nmea_send(char* cmd);//send data to SIM28 over USART1
-static void number_update();//update TrackNumber so it is equal to the highest existing one (on SD card)
-static unsigned char adc_battcheck();//check if supply voltage is too low (return 1 in this case)
+//generic functions
+static void processGPRMC();
+static void processGPGGA();
+static void processGPGSA();
+static void startNewTrack();
+static void stopCurrentTrack();
+static void addTrackPoint();
+static void appendGPXtext(char* text);
+static void appendGPXvalue(int value, unsigned int divisor, unsigned int skipLimit);
 
-static unsigned char NMEA_buffer[1024];//buffer for NMEA sentences received from SIM28
-static unsigned short TrackNumber;//number of the current track file
-static char FileName[13];//name of the file to write the current track to
+//functions to write appropriate values in configuration strings
+static void MCUsleep();//enter MCU sleep mode, wake up on interrupt
+static void verifyGPXfiles();//append GPX track and file terminations to all GPX files that do not have it
+static void readConfigFile();//write configuration values/strings according to config.txt and last TRK* filename
+static void setFixInterval(unsigned int newInterval);//sets time interval between position fixes
+static void setDateTime();//fill FileName and TrackName arrays based on current date and time
 
-static FATFS SD_fs;
-static FIL SD_file;
-static DIR SD_dir;
-static FILINFO SD_fileInfo;
+static char checkKeyword(char* referenceString);
+static unsigned int readValue(unsigned int factor);
+static void skipAfter(char symbol);
+static void enterBootloader();
+
+//FATFS related global variables
+static FATFS FATFSinfo;
+static FIL FILinfo;
+static FILINFO FILINFOinfo;
 static unsigned int temp;//for storing general temporary values
+
+//GPS logger related global variables
+unsigned char NMEAbuffer[1024];//buffer for NMEA sentences received from SIM28
+unsigned char GPXbuffer[1024];//buffer to temporarily store GPX data to be written in a file
+
+//array to convert month of the year into number of days it contains (change 28 to 29 for leap years)
+static unsigned char MonthToDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+LoggerInfo_TypeDef LoggerInfo =
+  {
+   .RMCdata =
+   {
+    .time = 0,
+    .latitude = 0,
+    .longitude = 0,
+    .speed = 0,
+    .course = 0,
+    .date = 0,
+    .dataStatus = 0
+   },
+   
+   .GGAdata =
+   {
+    .time = 0,
+    .latitude = 0,
+    .longitude = 0,
+    .altitude = 0,
+    .hdop = 5000,
+    .numSatUsed = 0,
+    .dataStatus = 0
+   },
+   
+   .GSAdata =
+   {
+    .pdop = 5000,
+    .hdop = 5000,
+    .vdop = 5000,
+    .fixType = 1 
+   },
+
+   .SupplyVoltage = 0,
+   .BatteryVoltage = 0,
+   .TrackFileOffset = 0,
+   .NMEApointer = &NMEAbuffer[0],
+   .UTCoffset = 0,
+   .GPXsize = 0,
+   .FileName  = {0},
+   .TrackName = {0},
+   .FixInterval = "PMTK220,1000",
+   .ConfigFlags = 0
+  };
+
+//------------------------------------------------------------------------------------
 
 int main()
 {
-  //clocks configuration
-  RCC->AHBENR |= (1<<22)|(1<<19)|(1<<18)|(1<<17)|(1<<0);//enable GPIOA, GPOIB, GPIOC, GPIOF, DMA clocks
-  RCC->CFGR3 |= (1<<4);//I2C1 uses SYSCLK
-  RCC->APB1ENR |= (1<<21)|(1<<11);//enable I2C1, WWDG clocks
+  //clocks configuration  
+  RCC->CFGR3 |= (1<<4);//I2C1 runs on system clock
+  RCC->AHBENR |= (1<<19)|(1<<18)|(1<<17)|(1<<0);//enable GPIOA, GPOIB, GPIOC, DMA1 clocks
+  RCC->APB1ENR |= (1<<28)|(1<<21)|(1<<1)|(1<<0);//enable PWR, I2C1, TIM2, TIM3 clocks
   RCC->APB2ENR |= (1<<14)|(1<<12)|(1<<9)|(1<<0);//enable USART1, SPI1, ADC_interface, SYSCFG clocks
-
+  ADC1->CFGR2 = (1<<30);//ADC1 clock = PCLK / 2
+  RCC->CSR |= (1<<0);//enable LSI clock
+  
   //SCB configuration
   SCB->SCR |= (1<<2);//set stop mode as default low power mode
-
-  //PORTS, EXTI configuration
-  GPIOA->MODER |= (1<<21)|(1<<19)|(1<<15)|(1<<13)|(1<<11);//PA5, PA6, PA7;  PA9, PA10 are in alternate function mode ( SPI1; USART1 )
-  GPIOA->AFR[1] |= (1<<8)|(1<<4);//PA9, PA10 are USART1
-  GPIOB->MODER |= (1<<20)|(1<<15)|(1<<13);//PB10 is output; PB6, PB7 are in alternate function mode
-  GPIOB->AFR[0] |= (1<<28)|(1<<24);//PB6, PB7 are I2C1
-  SYSCFG->EXTICR[3] |= (1<<9);//EXTI line 14 is connected to GPIOC
-  SYSCFG->EXTICR[2] |= (1<<9);//EXTI line 10 is connected to GPIOC
-  EXTI->IMR |= (1<<14)|(1<<10);//enable EXTI lines 14, 10
-  EXTI->RTSR |= (1<<14);//EXTI line 14 is triggered at rising edge
-  EXTI->FTSR |= (1<<10);//EXTI line 10 is triggered at falling edge
-
-  //DMA1 configuration
-  DMA1_Channel3->CNDTR = 1024;//transfer size = 1024 bytes
-  DMA1_Channel3->CPAR = (unsigned int) &(USART1->RDR);//set peripheral start address
-  DMA1_Channel3->CMAR = (unsigned int) NMEA_buffer;//set memory start address
-  DMA1_Channel3->CCR = (1<<7)|(1<<5)|(1<<0);//increment memory address, circular mode, enable DMA channel 3
-
-  //I2C1 configuration
-  I2C1->TIMINGR = (0x3<<20)|(0x1<<16)|(0x3<<8)|(0x9<<0);//SCLDEL=0x3, SDADEL=0x1, SCLH=0x3, SCLL=0x9 (400kHz clock)
-  I2C1->CR1 |= (1<<0);//enable I2C1
+  
+  //ports configuration
+  GPIOB->MODER |= (1<<19)|(1<<17)|(1<<15)|(1<<13)|(1<<3)|(1<<2);//PB6, PB7, PB8, PB9 are in alternate function mode, PB1 is analog input
+  GPIOB->AFR[1] |= (1<<4)|(1<<0);//PB8, PB9 are I2C1; PB6, PB7 are USART1
+  SYSCFG->CFGR1 |= (1<<10)|(1<<9);//remap USART1 DMA requests to channels 4 and 5
+  
+  //EXTI configuration
+  SYSCFG->EXTICR[3] = (1<<13);//EXTI line 15 is connected to GPIOC
+  EXTI->IMR = (1<<20)|(1<<15);//enable EXTI lines 20, 15
+  EXTI->RTSR = (1<<20)|(1<<15);//EXTI lines 20, 15 are triggered at rising edge
   NVIC_EnableIRQ(7);//enable ADXL345 activity interrupt
   
-  //SPI1 configuration
-  GPIOB->BSRR = (1<<10);//set CS pin high
-  SPI1->CR1 |= (1<<9)|(1<<8)|(1<<3)|(1<<2);//always in master mode, 2MHz clock
-  SPI1->CR2 |= (1<<12)|(1<<10)|(1<<9)|(1<<8);//generate RXNE event after 8 bits received, set 8 bit frame format
-  SPI1->CR1 |= (1<<6);//enable SPI1
-
   //USART1 configuration
-  //1 start bit, 8 bit transfer (least significant bit first), 1 stop bit; oversampling by 16
-  USART1->BRR = 833;//BRR = 69 corresponds to SIM28 default baud rate 115200. use BRR = 833 for 9600 baudrate
-  USART1->CR1 = (1<<0);//enable USART1
-  USART1->CR3 = (1<<6);//enable DMA for reception
-  USART1->CR1 |= (1<<3)|(1<<2);//enable USART1 transmitter, receiver; send idle character
-
-  //ADC1 configuration
+  //1 start bit, 8 bit transfer (least significant bit first), 1 stop bit; oversampling by 16;
+  USART1->CR3 = (1<<12);//disable overrun detection, disable DMA requests
+  USART1->BRR = 833;//set baudrate to 9600
+  USART1->CR1 = (1<<3)|(1<<2)|(1<<0);//enable USART1; send idle character
+  
+  //I2C1 configuration
+  I2C1->TIMINGR = (0x0<<28)|(0x3<<20)|(0x1<<16)|(0x3<<8)|(0x9<<0);//PRESC=0x0, SCLDEL=0x3, SDADEL=0x1, SCLH=0x3, SCLL=0x9 (400kHz clock)
+  I2C1->CR1 |= (1<<0);//enable I2C1
+  
+  //ADC1 configuration  
   ADC1->CR = (1<<31);//start ADC1 calibration
   while(ADC1->CR & (1<<31));//wait until calibration is complete
-  ADC1->CFGR2 = (1<<30);//ADC1 clock = PCLK / 2
+  __DSB();//make sure all outstanding memory transfers are over
   ADC1->CR = (1<<0);//enable ADC1
   while( !(ADC1->ISR & (1<<0)) );//wait until ADC1 is ready
-  ADC1->CFGR1 = (1<<12);//overwrite on overrun
-  ADC1->SMPR = (1<<1)|(1<<0);//use 28.5 ADC cycles of sample time (7.125us)
+  ADC1->CFGR1 = (1<<13)|(1<<2);//continuous conversion mode, keep old data on overrun, scan backwards
+  ADC1->SMPR = (1<<2)|(1<<1)|(1<<0);//use 239.5 ADC cycles of sample time (59.875us at PCLK = 8Mhz)
   ADC->CCR = (1<<22);//enable reference voltage for ADC1
-  ADC1->CHSELR = (1<<17);//enable only Vref channel for ADC1
-  ADC1->CR |= (1<<1);//disable ADC1
+  ADC1->CHSELR = (1<<17)|(1<<9);//enable Vref and ADC_IN9 channels for ADC1
+  ADC1->CR = (1<<2)|(1<<0);//start making conversions
   
-  if( f_mount(&SD_fs, "0:", 1) ) NVIC_SystemReset();//initialize SD card
-
-  if( adc_battcheck() )//check for insufficient battery voltage (for correct SIM28 operation)
+  //RTC configuration
+  while( !(RCC->CSR & (1<<1)) );//wait until LSI is ready
+  PWR->CR |= (1<<8);//enable access to RTC
+  RCC->BDCR |= (1<<16);//reset RTC peripheral
+  RCC->BDCR &= ~(1<<16);//deassert RTC reset
+  RCC->BDCR |= (1<<15)|(1<<9);//enable clock for RTC peripheral, use LSI
+  RTC->WPR = 0xCA;//disable write-protection of RTC registers
+  RTC->WPR = 0x53;//disable write-protection of RTC registers
+  RTC->ISR |= (1<<7);//enter RTC initialization mode
+  while( !(RTC->ISR & (1<<6)) );//wait until RTC configuration can be changed
+  RTC->PRER = (124<<16)|(319<<0);//PREDIV_A + 1 = 125, PREDIV_S + 1 = 320; 40kHz clock expected
+  RTC->ISR &= ~(1<<7);//exit RTC initialization mode
+  NVIC_EnableIRQ(2);//enable RTC wakeup timer interrupt
+  
+  __enable_irq();//enable interrupts globally
+  
+//------------------------------------------------------------------------------------
+  
+  restart_tim2(5);//have a startup delay of 5ms for W25N01GVZEIG
+  while(TIM2->CR1 & (1<<0)) batteryCheck();//while timer runs out, keep checking battery voltage
+  
+  if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if f_mount() was successful
+    { 
+      verifyGPXfiles();//append GPX track and file terminations to all GPX files that do not have it (eg. because of poweroff)
+      readConfigFile();//run configuration commands from config.txt
+      sim28_init();//configure SIM28, ensure it is in a known state
+      
+      adxl_init();//initialize ADXL345
+    }
+  else//if no valid FAT was found
     {
-      adxl_standby();//tell adxl345 to enter standby mode
+      disk_initialize(0);//initialize the flash storage for MSD use
+      sim28_init();//configure SIM28, ensure it is in a known state
+      sim28_sleep();//tell SIM28 to enter sleepmode, since there is nowhere to store the data
       
-      while( !(USART1->ISR & (1<<5)) );//wait until SIM28 starts sending something (to make sure that it is ready to receive)
-      nmea_send("$PMTK161,0*28");//tell SIM28 to enter sleep mode
-      
-      RCC->CR |= (1<<0);//enable HSI clock
-      while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
-      RCC->CFGR &= ~( (1<<1)|(1<<0) );//use HSI as system clock
-      while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
-      RCC->CR &= ~(1<<16);//disable HSE clock
-      
-      __WFI();//MCU enters deep sleep mode (stop)
-      
-      //at this point processor should be stuck in __WFI() until the power supply is turned off
-      while(1);
+      //disable activity/inactivity detection
+      adxl_standby();
+      adxl_clear();
     }
   
-  while( !(USART1->ISR & (1<<5)) );//wait until SIM28 starts sending something (to make sure that it is ready to receive)
-  nmea_send("$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28");//tell SIM28 to only send GPGGA and GPRMC messages
-  
-  //WWDG configuration
-  WWDG->CFR = 0x1FF;//window watchdog prescaler = 8, window = 0x7F 
-  WWDG->CR = 0xDF;//start WWDG, set timer value to 0x3F (131.072ms)
-
-  adxl_init();//initialize ADXL345
-  
-  //start saving new data to the highest numberered file that exists on SD card
-  number_update();
-  sprintf((char*) FileName, "TRK%u.txt", TrackNumber);
-
-  __enable_irq();//enable interrupts globally
-
-  
   while(1)
-    {
-      WWDG->CR = 0xDF;//refresh WWDG timer value
-
-      if(need_sleepcheck)//at every 1PPS falling edge
-	{ 
-	  if( adc_battcheck() )//check for insufficient battery voltage
-	    {
-	      __disable_irq();
-	      adxl_standby();//tell adxl345 to enter standby mode
-	      
-	      nmea_send("$PMTK161,0*28");//tell SIM28 to enter sleep mode
-	      
-	      RCC->CR |= (1<<0);//enable HSI clock
-	      while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
-	      RCC->CFGR &= ~( (1<<1)|(1<<0) );//use HSI as system clock
-	      while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
-	      RCC->CR &= ~(1<<16);//disable HSE clock
-	      
-	      __WFI();//MCU enters deep sleep mode (stop)
-	      
-	      //at this point processor should be stuck in __WFI() until the power supply is turned off
-	      while(1);
-	    }
-
-	  adxl_sleepcheck();//check for ADXL345 activity/inactivity signals
-	  
-	  need_sleepcheck = 0;
-	}
-      
-      if(DMA1->ISR & (1<<10))//when a complete 512 byte block is received
-	{ 
-	  //write first block to SD card (while that happends new received bytes are saved to the second block in NMEA_buffer)
-	  if( f_open(&SD_file, (char*) FileName, FA_OPEN_APPEND | FA_WRITE) ) NVIC_SystemReset();
-	  if( f_write(&SD_file, (void*) NMEA_buffer, 512, &temp) ) NVIC_SystemReset();
-	  if( f_close(&SD_file) ) NVIC_SystemReset();
-
-	  DMA1->IFCR = (1<<11)|(1<<10)|(1<<9)|(1<<8);//clear all DMA1_Channel3 flags
-	}
-      
-      if(DMA1->ISR & (1<<9))//when the second block is completely received
-	{ 
-	  //write second block to SD card
-	  if( f_open(&SD_file, (char*) FileName, FA_OPEN_APPEND | FA_WRITE) ) NVIC_SystemReset();
-	  if( f_write(&SD_file, (void*) NMEA_buffer + 512, 512, &temp) ) NVIC_SystemReset();
-	  if( f_close(&SD_file) ) NVIC_SystemReset();
-
-	  DMA1->IFCR = (1<<11)|(1<<10)|(1<<9)|(1<<8);//clear all DMA1_Channel3 flags
-	}
-      
+    { 
+      batteryCheck();//if battery voltage is insufficient for operation, go to sleepmode
+      diskmodeCheck();//if USB cable is connected go to diskmode
+      sleepmodeCheck();//if inactivity is detected go to sleepmode
+      processNMEA();//if new 512 byte block of NMEA data is received, process messages inside
+      garbage_collect();//if some block in flash became invalid, erase it
     }
   
   NVIC_SystemReset();
   return 0;
 }
 
+//------------------------------------------------------------------------------------
 
-static void adxl_init()
+//check for inactivity signal; if present, enter stop mode
+static void sleepmodeCheck()
 {
-  adxl_standby();//this to ensure ADXL345 is ready to be reconfigured
-  
-  I2C1->CR2 = (0x05<<16)|(1<<13)|(0x53<<1);//set NBYTES=5, send START, 0x53+write
-  I2C1->TXDR = 0x24;//register address 0x24
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 32;//2g activity thereshold
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 20;//1.25g inactivity thereshold
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 60;//60 sec inactivity time
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b01110111;//dc operation, all axes enabled (both for ACT and INACT)
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
-  
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x2F;//register address 0x2F
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00001000;//activity - INT1, inactivity - INT2
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
- 
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x31;//register address 0x31
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00001011;//full resolution, 16g range
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
-  
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x38;//register address 0x38
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0x00;//FIFO bypass mode
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
-
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x2E;//register address 0x2E
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00011000;//enable activity, inactivity interrupts
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
-  
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x2D;//register address 0x2D
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00101000;//use link mode, start measurements
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
-
-  return;
-}
-
-static void adxl_clear()
-{
-  //read ADXL345 INT_SOURCE register to reset INT lines to 0
-  I2C1->CR2 = (0x01<<16)|(1<<13)|(0x53<<1);//set NBYTES=1, send START, 0x53+write
-  I2C1->TXDR = (0x30);//register address 0x30
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 = (0x01<<16)|(1<<13)|(1<<10)|(0x53<<1);//set NBYTES=1, send reSTART, 0x53+read
-  while( !(I2C1->ISR & (1<<2)) );
-  I2C1->RXDR;//read RXDR register
-  I2C1->CR2 |= (1<<15)|(1<<14);//send NACK, STOP
-
-  return;
-}
-
-static void adxl_sleepcheck()
-{
-  if(GPIOC->IDR & (1<<13))//if inactivity was detected
+  //if both activity and inactivity signals are present, restart ADXL345
+  if( (GPIOC->IDR & (1<<15)) && (GPIOC->IDR & (1<<14)) ) adxl_init();
+  //if inactivity was detected and in the last 1 minute speed was not more than 5 km/h
+  else if( (GPIOC->IDR & (1<<14)) && !(TIM3->CR1 & (1<<0)) )
     {
-      adxl_clear();//reset ADXL345 interrupt lines
-
-      nmea_send("$PMTK161,0*28");//tell SIM28 to enter sleep mode
-
-      DMA1_Channel3->CCR = 0;//disable DMA channel 3
+      stopCurrentTrack();//if some track file was being written, add track termination
+      sim28_sleep();//tell SIM28 to enter sleepmode
+      MCUsleep();//enter MCU sleep mode
       
-      RCC->CR |= (1<<0);//enable HSI clock
-      while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
-      RCC->CFGR &= ~( (1<<1)|(1<<0) );//use HSI as system clock
-      while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
-      RCC->CR &= ~(1<<16);//disable HSE clock
-      
-      __WFI();//MCU enters deep sleep mode (stop)
+      sim28_init();//wake up SIM28
+      adxl_init();//restart ADXL345
+    }
+  
+  return;
+}
 
-      //MCU continues to here after activity detection
-      RCC->CR |= (1<<16);//enable HSE clock
-      while( !(RCC->CR & (1<<17)) );//wait until HSE is ready  
-      RCC->CFGR |= (1<<0);//use HSE as system clock
+//check if USB cable is connected; if it is, enter disk mode
+static void diskmodeCheck()
+{
+  if(GPIOB->IDR & (1<<13))//if VBUS voltage is detected
+    { 
+      stopCurrentTrack();//if some track file was being written, add track and file termination
+      sim28_sleep();//tell SIM28 to enter sleepmode
+      
+      FLASH->ACR = (1<<4)|(1<<0);//enable prefetch buffer, insert 1 wait state for flash read access (needed because SYSCLK will be 48MHz)
+      
+      RCC->CFGR |= (1<<20)|(1<<16);//derive PLL clock from HSE, multiply HSE by 6 (8MHz * 6 = 48MHz)
+      RCC->CR |= (1<<24);//enable PLL
+      while( !(RCC->CR & (1<<25)) );//wait until PLL is ready
+      RCC->CFGR = (1<<20)|(1<<16)|(1<<1);//set PLL as system clock
+      while( !((RCC->CFGR & 0x0F) == 0b1010) );//wait until PLL is used as system clock
+
+      if(LoggerInfo.ConfigFlags & (1<<2)) enterBootloader();
+      else usb_init();//initialize USB peripheral
+      while(GPIOB->IDR & (1<<13)) usb_handler();//while USB cable is plugged in, act as flash disk only
+      
+      //once USB cable was disconnected, decrease current draw to 83mA, disable USB peripheral
+      GPIOA->MODER &= ~((1<<18)|(1<<16));//disconnect chg1 and chg2 lines from ground
+      RCC->APB1RSTR |=  (1<<23);//reset USB peripheral
+      
+      RCC->CFGR = (1<<20)|(1<<16)|(1<<0);//set HSE as system clock
       while( !((RCC->CFGR & 0x0F) == 0b0101) );//wait until HSE is used as system clock
-      RCC->CR &= ~(1<<0);//disable HSI clock
+      RCC->CR &= ~(1<<24);//disable PLL
       
-      //recalibrate ADC1
-      ADC1->CR = (1<<31);
-      while(ADC1->CR & (1<<31));
-
-      if( adc_battcheck() )//check for insufficient battery voltage
+      FLASH->ACR = 0;//disable prefetch buffer, have no wait state for flash read access (because SYSCLK will be 8MHz)
+      
+      if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//reinitialize FATFSinfo structure, in case the filesystem was altered during USB diskmode
+      {	
+	readConfigFile();//start saving data in a new TRK*.TXT file, load new configuration from config.txt
+	sim28_init();//wake up SIM28
+	
+	adxl_init();//reinitialize ADXL345
+      }
+      else
 	{
-	  __disable_irq();//prevent ISR execution
-	  adxl_standby();//tell adxl345 to enter standby mode
-	  
-	  RCC->CR |= (1<<0);//enable HSI clock
-	  while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
-	  RCC->CFGR &= ~( (1<<1)|(1<<0) );//use HSI as system clock
-	  while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
-	  RCC->CR &= ~(1<<16);//disable HSE clock
+	  //disable activity/inactivity detection, keep SIM28 in sleepmode
+	  adxl_standby();
+	  adxl_clear();
+	}
+    }
+  
+  return;
+}
+
+static void batteryCheck()
+{
+  //if overrun is detected, clear OVR, EOSEQ, EOC, EOSMP flags
+  if(ADC1->ISR & (1<<4)) ADC1->ISR = (1<<4)|(1<<3)|(1<<2)|(1<<1);
+  
+  else if(ADC1->ISR & (1<<2))//if conversion is complete (without overrun)
+    {
+      //if ADC_IN9 channel was converted (end of sequence), compute battery voltage
+      if(ADC1->ISR & (1<<3)) LoggerInfo.BatteryVoltage = ( LoggerInfo.SupplyVoltage * ADC1->DR ) / 1365;// Vbat / 3 = Vdd / 2^12 * Vmeas       
+      //if Vref channel was converted (sequence not over yet), compute MCU supply voltage
+      else LoggerInfo.SupplyVoltage = ( 330000 * *((unsigned short*) 0x1FFFF7BA) ) / ADC1->DR;// Vdd = 3.3V * VREFINT_CAL / VREFINT_DATA           
       
-	  __WFI();//MCU enters deep sleep mode (stop)
+      //if measured supply voltage is valid and below 2.85V
+      if( (LoggerInfo.SupplyVoltage > 0) && (LoggerInfo.SupplyVoltage < 285000) )
+	{
+	  stopCurrentTrack();//if some track file was being written, add track and file termination
 	  
-	  //at this point processor should be stuck in __WFI() until the power supply is turned off
-	  while(1);
+	  __disable_irq();//disable interrupt handler entry
+	  NVIC_DisableIRQ(2);//disable RTC interrupt
+	  NVIC_DisableIRQ(7);//disable EXTI lines 4 through 15 interrupt
+	  NVIC_DisableIRQ(10);//disable DMA interrupt
+	  
+	  adxl_standby();//tell adxl345 to enter standby mode
+	  adxl_clear();//clear adxl345 interrupt lines
+	  
+	  sim28_sleep();//tell SIM28 to enter sleepmode
+	  MCUsleep();//at this point the processor should be stuck in sleep mode until the power supply is turned off    
 	}
       
-      //enable DMA channel 3
-      DMA1_Channel3->CNDTR = 1024;
-      DMA1_Channel3->CPAR = (unsigned int) &(USART1->RDR);
-      DMA1_Channel3->CMAR = (unsigned int) NMEA_buffer;
-      DMA1_Channel3->CCR = (1<<7)|(1<<5)|(1<<0);
+      ADC1->ISR = (1<<3)|(1<<2)|(1<<1);//clear EOSEQ, EOC, EOSMP flags
     }
   
-  if(GPIOC->IDR & (1<<14))//if activity was detected
+  return;
+}
+
+static void processNMEA()
+{
+  unsigned char* whereToStop; //used to find messageCount value
+  unsigned char* whereToCheck;//used to find messageCount value
+  unsigned char  messageCount = 0;//holds how many NMEA messages to process
+  
+  //if a complete 512 byte block was received, clear appropriate DMA flag and remember where the end of this block is
+       if(DMA1->ISR & (1<<18)) {DMA1->IFCR = (1<<18); whereToStop = &NMEAbuffer[512];}
+  else if(DMA1->ISR & (1<<17)) {DMA1->IFCR = (1<<17); whereToStop = &NMEAbuffer[0];}  
+  else return;//if there is no new block to process, do nothing and exit
+  
+  //find how many messages are to be processed
+  whereToCheck = LoggerInfo.NMEApointer;//start searching for message terminations at NMEApointer
+  while(whereToCheck != whereToStop)//keep going until the end of newly received block is reached
     {
-      adxl_clear();//reset ADXL345 interrupt lines
+      if(*whereToCheck == 0x0A) messageCount++;
       
-      nmea_send("$PMTK101*32");//wake up SIM28
+      //move to next character in NMEAbuffer[]
+      if(whereToCheck < &NMEAbuffer[1023]) whereToCheck++;
+      else whereToCheck = &NMEAbuffer[0];
+    }
+  
+  
+  LoggerInfo.GPXsize = 0;//start writing new processed data at the beginning of GPXbuffer[]
+  while(messageCount)//keep going until all messages in the buffer were processed
+    {
+           if( checkKeyword("$GPRMC") ) processGPRMC();//interpret the message and write correct values into RMCdata structure
+      else if( checkKeyword("$GPGGA") ) processGPGGA();//interpret the message and write correct values into GGAdata structure
+      else if( checkKeyword("$GPGSA") ) processGPGSA();//interpret the message and write correct values into GSAdata structure
+      else                              skipAfter(0x0A);//if message is not recognized, skip to the next one
       
-      //start saving incoming data in a new file
-      if(TrackNumber < 65535) TrackNumber++;
-      sprintf((char*) FileName, "TRK%u.txt", TrackNumber);
+      //if last received GPRMC and GPGGA messages are valid and have the same timestamp
+      if( ((LoggerInfo.RMCdata).dataStatus = 1) && ((LoggerInfo.GGAdata).dataStatus == 1) && ((LoggerInfo.RMCdata).time == (LoggerInfo.GGAdata).time) )
+	{
+	  if(LoggerInfo.TrackName[0] == 0) startNewTrack();//if there is no current track, start a new one
+	  addTrackPoint();//add new trackpoint to GPXbuffer[]
+	  
+	  (LoggerInfo.RMCdata).dataStatus = 0;//set RMC dataStatus as invalid, so the message is not used again
+	  (LoggerInfo.GGAdata).dataStatus = 0;//set GGA dataStatus as invalid, so the message is not used again
+	}
+      
+      messageCount--;//one more NMEA message was processed
     }
   
-  return;
-}
-
-static void adxl_standby()
-{
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x2D;//register address 0x2D
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0x00;//enter standby mode
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 |= (1<<14);//send STOP
-
-  return;
-}
-
-static void nmea_send(char* cmd)
-{
-  while(*cmd != 0x00)//send all symbols of a command before the null termination
+  
+  if(LoggerInfo.GPXsize)//if there is a need to save some data into a file
     {
-      while( !(USART1->ISR & (1<<7)) );
-      USART1->TDR = *cmd;
-      cmd++;
+      //save all the new processed data to a GPX file
+      if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK)
+	{
+	  f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
+	  f_close(&FILinfo);
+	}
     }
   
-  while( !(USART1->ISR & (1<<7)) );
-  USART1->TDR = 0x0D;//append carriage return symbol
-  while( !(USART1->ISR & (1<<7)) );
-  USART1->TDR = 0x0A;//append line feed symbol
-
-  while( !(USART1->ISR & (1<<6)) );//wait until transfer is complete
-
   return;
 }
 
-static void number_update()
+static void processGPRMC()
 {
-  if( f_findfirst(&SD_dir, &SD_fileInfo, "0:/", "TRK*") ) NVIC_SystemReset();//find if there are any existing tracks on SD card
+  skipAfter(',');//move to UTC time field, read the value
+  (LoggerInfo.RMCdata).time = readValue(1000);
   
-  while( SD_fileInfo.fname[0] )//if some track file is found keep searching
+  skipAfter(',');//move to data status field, 'A' means data valid
+  if(*LoggerInfo.NMEApointer == 'A') (LoggerInfo.RMCdata).dataStatus = 1;
+  else                               (LoggerInfo.RMCdata).dataStatus = 0;
+  
+  skipAfter(',');//move to latitude field, read the value, convert it to decimal degrees
+  (LoggerInfo.RMCdata).latitude = readValue(100000);//value was read in this format DDMMMMMMM (in units of degree, minute/10^5)
+  (LoggerInfo.RMCdata).latitude = ((LoggerInfo.RMCdata).latitude / 10000000) * 10000000 + (((LoggerInfo.RMCdata).latitude % 10000000) * 10) / 6;
+  
+  skipAfter(',');//move to north/south field, add negative sign in case of south latitude
+  if(*LoggerInfo.NMEApointer == 'S') (LoggerInfo.RMCdata).latitude = -(LoggerInfo.RMCdata).latitude;
+  
+  skipAfter(',');//move to longitude field, read the value, convert it to decimal degrees
+  (LoggerInfo.RMCdata).longitude = readValue(100000);//value was read in this format DDDMMMMMMM (in units of degree, minute/10^5)
+  (LoggerInfo.RMCdata).longitude = ((LoggerInfo.RMCdata).longitude / 10000000) * 10000000 + (((LoggerInfo.RMCdata).longitude % 10000000) * 10) / 6;
+  
+  skipAfter(',');//move to east/west field, add negative sign in case of west longitude
+  if(*LoggerInfo.NMEApointer == 'W') (LoggerInfo.RMCdata).longitude = -(LoggerInfo.RMCdata).longitude;
+  
+  skipAfter(',');//move to speed over ground field, read the value, convert it to meters per second
+  (LoggerInfo.RMCdata).speed = readValue(1000);//value was read in this format NNNNNNNNN (in units of knot/10^3)
+  (LoggerInfo.RMCdata).speed = ((LoggerInfo.RMCdata).speed * 514) / 1000;
+  
+  skipAfter(',');//move to course over ground field, read the value
+  (LoggerInfo.RMCdata).course = readValue(100);
+  
+  skipAfter(',');//move to date field, read the value
+  (LoggerInfo.RMCdata).date = readValue(1);
+  
+  skipAfter(0x0A);//skip to the next command
+  return;
+}
+
+static void processGPGGA()
+{
+  skipAfter(',');//move to UTC time field, read the value
+  (LoggerInfo.GGAdata).time = readValue(1000);
+  
+  skipAfter(',');//move to latitude field, read the value, convert it to decimal degrees
+  (LoggerInfo.GGAdata).latitude = readValue(100000);//value was read in this format DDMMMMMMM (in units of degree, minute/10^5)
+  (LoggerInfo.GGAdata).latitude = ((LoggerInfo.GGAdata).latitude / 10000000) * 10000000 + (((LoggerInfo.GGAdata).latitude % 10000000) * 10) / 6;
+  
+  skipAfter(',');//move to north/south field, add negative sign in case of south latitude
+  if(*LoggerInfo.NMEApointer == 'S') (LoggerInfo.GGAdata).latitude = -(LoggerInfo.GGAdata).latitude;
+  
+  skipAfter(',');//move to longitude field, read the value, convert it to decimal degrees
+  (LoggerInfo.GGAdata).longitude = readValue(100000);//value was read in this format DDDMMMMMMM (in units of degree, minute/10^5)
+  (LoggerInfo.GGAdata).longitude = ((LoggerInfo.GGAdata).longitude / 10000000) * 10000000 + (((LoggerInfo.GGAdata).longitude % 10000000) * 10) / 6;
+  
+  skipAfter(',');//move to east/west field, add negative sign in case of west longitude
+  if(*LoggerInfo.NMEApointer == 'W') (LoggerInfo.GGAdata).longitude = -(LoggerInfo.GGAdata).longitude;
+  
+  skipAfter(',');//move to data status field; '1', '2' or '6' means data valid
+       if(*LoggerInfo.NMEApointer == '1') (LoggerInfo.GGAdata).dataStatus = 1;
+  else if(*LoggerInfo.NMEApointer == '2') (LoggerInfo.GGAdata).dataStatus = 1;
+  else if(*LoggerInfo.NMEApointer == '6') (LoggerInfo.GGAdata).dataStatus = 1;
+  else                                    (LoggerInfo.GGAdata).dataStatus = 0;
+  
+  skipAfter(',');//move to sattelites used field, read the value
+  (LoggerInfo.GGAdata).numSatUsed = readValue(1);
+  
+  skipAfter(',');//move to hdop field, read the value
+  (LoggerInfo.GGAdata).hdop = readValue(100);
+  
+  skipAfter(',');//move to MSL altitude field, read the value
+  (LoggerInfo.GGAdata).altitude = readValue(1000);
+  
+  skipAfter(0x0A);//skip to the next command
+  return;
+}
+
+static void processGPGSA()
+{
+  skipAfter(',');//move to mode 1 field, do nothing
+  
+  skipAfter(',');//move to mode 2 field; '2' means 2D fix, '3' means 3D fix
+       if(*LoggerInfo.NMEApointer == '2') (LoggerInfo.GSAdata).fixType = 2;
+  else if(*LoggerInfo.NMEApointer == '3') (LoggerInfo.GSAdata).fixType = 3;
+  else                                    (LoggerInfo.GSAdata).fixType = 1;
+  
+  skipAfter(',');//move to sattelite used field  1, do nothing
+  skipAfter(',');//move to sattelite used field  2, do nothing
+  skipAfter(',');//move to sattelite used field  3, do nothing
+  skipAfter(',');//move to sattelite used field  4, do nothing
+  skipAfter(',');//move to sattelite used field  5, do nothing
+  skipAfter(',');//move to sattelite used field  6, do nothing
+  skipAfter(',');//move to sattelite used field  7, do nothing
+  skipAfter(',');//move to sattelite used field  8, do nothing
+  skipAfter(',');//move to sattelite used field  9, do nothing
+  skipAfter(',');//move to sattelite used field 10, do nothing
+  skipAfter(',');//move to sattelite used field 11, do nothing
+  skipAfter(',');//move to sattelite used field 12, do nothing
+
+  skipAfter(',');//move to pdop field, read the value
+  (LoggerInfo.GSAdata).pdop = readValue(100);
+  
+  skipAfter(',');//move to hdop field, read the value
+  (LoggerInfo.GSAdata).hdop = readValue(100);
+  
+  skipAfter(',');//move to vdop field, read the value
+  (LoggerInfo.GSAdata).vdop = readValue(100);
+  
+  skipAfter(0x0A);//skip to the next command
+  return;
+}
+
+static void startNewTrack()
+{
+  FRESULT result;//holds return value of some fatfs related function
+  
+  setDateTime();//fill FileName and TrackName arrays based on current date and time  
+  restart_tim2(240000);//set TIM2 to count for 4 minutes (if track will be stopped before TIM2 is done the track is discarded)
+  
+  result = f_stat((char*) LoggerInfo.FileName, &FILINFOinfo);//find if a file with target FileName[] already exists
+  if(result == FR_OK)//if target track file does exist
     {
-      temp = atoi( SD_fileInfo.fname + 3 );
-      if(temp > TrackNumber) TrackNumber = temp;//set current tracknumber to the highest existing number found yet
-      if( f_findnext(&SD_dir, &SD_fileInfo) ) NVIC_SystemReset();
+      LoggerInfo.TrackFileOffset = FILINFOinfo.fsize - 7;//remember where in the file current track will be written
+      
+      //erase previous GPX file termination
+      if( f_open(&FILinfo, (char*) &LoggerInfo.FileName[0], FA_READ | FA_WRITE) == FR_OK )
+	{ 
+	  f_lseek(&FILinfo, FILINFOinfo.fsize - 7);//move read/write pointer back to where GPX file termination should be
+	  f_truncate(&FILinfo);//delete all data past current read/write pointer
+	  f_close(&FILinfo);
+	}
     }
-
-  if( f_closedir(&SD_dir) ) NVIC_SystemReset();
+  else if(result == FR_NO_FILE)//if target track file is not found
+    {
+      LoggerInfo.TrackFileOffset = 0;//set TrackFileOffset to 0, to indicate that there is only one track in the GPX file
+      
+      //append GPX file header; use current date for GPX name, in this format: YYYY-MM-DD (year-month-day)
+      appendGPXtext("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+      appendGPXtext("<gpx version=\"1.1\" creator=\"LocalTrack\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n");
+      appendGPXtext("<metadata>\n");
+      appendGPXtext("<name>20");
+      appendGPXtext((char*) LoggerInfo.FileName);
+      LoggerInfo.GPXsize = LoggerInfo.GPXsize - 4;
+      appendGPXtext("</name>\n");
+      appendGPXtext("</metadata>\n");      
+    }
+  
+  //append new track header
+  appendGPXtext("<trk>\n");
+  appendGPXtext("<name>");
+  appendGPXtext((char*) LoggerInfo.TrackName);
+  appendGPXtext("</name>\n");
+  appendGPXtext("<cmt>Battery Voltage: ");
+  appendGPXvalue(LoggerInfo.BatteryVoltage, 100000, 100000);
+  LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
+  appendGPXtext("V</cmt>\n");
+  appendGPXtext("<trkseg>\n");
   
   return;
 }
 
-static unsigned char adc_battcheck()
-{
-  unsigned int Vdd_meas = 0;//measured supply voltage in units of 10uV
-  unsigned int ADC_Data = 0;
-  unsigned short i;
+static void stopCurrentTrack()
+{ 
+  if(LoggerInfo.TrackName[0])//if some track was being written to file
+    {
+      LoggerInfo.GPXsize = 0;//start writing data at the beginning of GPXbuffer[]
+      
+      //if current track is shorter than 4 minutes and ShortTrackFlag is not set
+      if( (TIM2->CR1 & (1<<0)) && !(LoggerInfo.ConfigFlags & (1<<0)) )
+	{
+	  //if there is only one track in GPX file, delete the whole file
+	  if(LoggerInfo.TrackFileOffset == 0) f_unlink((char*) &LoggerInfo.FileName);
+	  //if there are multiple tracks, delete only the current track
+	  else if( f_open(&FILinfo, (char*) &LoggerInfo.FileName[0], FA_READ | FA_WRITE) == FR_OK )
+	    { 
+	      f_lseek(&FILinfo, LoggerInfo.TrackFileOffset);//move read/write pointer back to where current track started
+	      f_truncate(&FILinfo);//remove current track data
+	      
+	      //put GPX file termination back in place
+	      appendGPXtext("</gpx>\n");	  
+	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
+	      f_close(&FILinfo);
+	    }
+	}
+      
+      else//if current track is at least 4 minutes long
+	{ 
+	  //save all the new processed data to a GPX file
+	  if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK)
+	    { 
+	      //append GPX track and file terminations
+	      appendGPXtext("</trkseg>\n");
+	      appendGPXtext("</trk>\n");
+	      appendGPXtext("</gpx>\n");
+	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
+	      f_close(&FILinfo);
+	    }
+	}
+      
+    }
+  
+  LoggerInfo.TrackName[0] = 0;//remember that there is no current track anymore  
+  return;
+}
 
-  ADC1->ISR = 0x9F;//clear all ADC flags
-  ADC1->CR |= (1<<0);//enable ADC1
+//append trackpoint information into GPXbuffer[]
+static void addTrackPoint()
+{ 
+  //add string in this form: <trkpt lat="-61.6317250" lon="132.2348600">
+  appendGPXtext("<trkpt lat=\"");
+  appendGPXvalue( (LoggerInfo.RMCdata).latitude,  10000000, 10000000 );
+  appendGPXtext("\" lon=\"");
+  appendGPXvalue( (LoggerInfo.RMCdata).longitude, 10000000, 10000000 );
+  appendGPXtext("\">\n");
+  
+  //add string in this form: <ele>146.125</ele>
+  appendGPXtext("  <ele>");
+  appendGPXvalue( (LoggerInfo.GGAdata).altitude, 1000, 1000 );
+  appendGPXtext("</ele>\n");
+  
+  //add string in this form: <time>2020-07-31T12:49:32.945Z</time>
+  appendGPXtext("  <time>20");
+  appendGPXvalue( (LoggerInfo.RMCdata).date % 100, 1, 10 );
+  appendGPXtext("-");
+  appendGPXvalue( ((LoggerInfo.RMCdata).date / 100) % 100, 1, 10 );
+  appendGPXtext("-");
+  appendGPXvalue( ((LoggerInfo.RMCdata).date / 10000) % 100, 1, 10 );
+  appendGPXtext("T");
+  appendGPXvalue( ((LoggerInfo.RMCdata).time / 10000000) % 100, 1, 10 );
+  appendGPXtext(":");
+  appendGPXvalue( ((LoggerInfo.RMCdata).time / 100000) % 100, 1, 10 );
+  appendGPXtext(":");
+  appendGPXvalue( (LoggerInfo.RMCdata).time % 100000, 1000, 10000 );
+  appendGPXtext("Z</time>\n");
+  
+  if(LoggerInfo.ConfigFlags & (1<<4))//if REPORT_SPEED command was used
+    {
+      //add string in this form: <speed>57.341</speed>
+      appendGPXtext("  <speed>");
+      appendGPXvalue( (LoggerInfo.RMCdata).speed, 1000, 1000 );
+      appendGPXtext("</speed>\n");
+    }
+  
+  if(LoggerInfo.ConfigFlags & (1<<5))//if REPORT_COURSE command was used
+    {
+      //add string in this form: <course>132.87</course>
+      appendGPXtext("  <course>");
+      appendGPXvalue( (LoggerInfo.RMCdata).course, 100, 100 );
+      appendGPXtext("</course>\n");
+    }
+  
+  if(LoggerInfo.ConfigFlags & (1<<6))//if REPORT_NUMSAT command was used
+    {
+      //add string in this form: <sat>12</sat>
+      appendGPXtext("  <sat>");
+      appendGPXvalue( (LoggerInfo.GGAdata).numSatUsed, 1, 1 );
+      appendGPXtext("</sat>\n");
+    }
+  
+  if(LoggerInfo.ConfigFlags & (1<<7))//if REPORT_FIXTYPE command was used
+    {
+      //add string in this form: <fix>2d</fix>, but only if fix is available
+      if( (LoggerInfo.GSAdata).fixType == 2 ) appendGPXtext("  <fix>2d</fix>\n");
+      if( (LoggerInfo.GSAdata).fixType == 3 ) appendGPXtext("  <fix>3d</fix>\n");
+    }
+  
+  //add string in this form: </trkpt>
+  appendGPXtext("</trkpt>\n");
+  
+  //if SIM28 reported speed above 5 km/h (1.389 m/s) restart 1 minute timer
+  if( ((LoggerInfo.RMCdata).speed) >= 1389 ) restart_tim3(60000);
+  
+  return;
+}
+
+//append specified text to the previous data in GPXbuffer[], increment GPXsize accordingly
+static void appendGPXtext(char* text)
+{
+  while(*text)//keep writing until end of string is detected
+    {
+      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+      GPXbuffer[LoggerInfo.GPXsize] = *text;//copy character into GPXbuffer[]
+      
+      text++;//move to the next character in data string
+      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+    }
+  
+  return;
+}
+
+//convert integer to a string and append it to the previous data in GPXbuffer[], increment GPXsize accordingly;
+//value will be divided by a specified divisor, in order to place a decimal point separator in the right place;
+//leading zero digits with significance bigger than skipLimit will be omitted, nonzero digits are never omitted;
+//divisor and skipLimit must be numbers that are a power of 10, from 10^0 to 10^9; skipLimit should not be less than divisor
+static void appendGPXvalue(int value, unsigned int divisor, unsigned int skipLimit)
+{ 
+  unsigned int  divideBy = 1000000000;//used to step through the digits in specified decimal value
+  unsigned char symbol = 0;//contains ASCII code for current digit
+  
+  if(value < 0)//if specified value is negative
+    {
+      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+      GPXbuffer[LoggerInfo.GPXsize] = '-';//add minus sign at the start
+      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+      
+      value = -value;//make the value positive
+    }
+  
+  //skip leading zeroes, but make sure not to go over skipLimit; eg. skipLimit = divisor * 10
+  //means leave 2 symbols before the dot, even if both of them are zeroes
+  while( ((value / divideBy) == 0) && (divideBy > skipLimit) ) divideBy = divideBy / 10;
+  
+  while(divideBy)//keep converting until all digits are processed
+    {
+      symbol = (value / divideBy) % 10 + 48;//find the next digit to add in the string
+      
+      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+      GPXbuffer[LoggerInfo.GPXsize] = symbol;//add one more digit in the string
+      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+      
+      //if last digit before the dot was just now processed, and there are still digits left to place after the dot
+      if((divideBy == divisor) && (divisor != 1))
+	{
+	  if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+	  GPXbuffer[LoggerInfo.GPXsize] = '.';//add dot separator character
+	  LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+	}
+      
+      divideBy = divideBy / 10;//move on to convert the next digit
+    }
+  
+  return;
+}
+
+//------------------------------------------------------------------------------------
+
+static void MCUsleep()
+{
+  ADC1->CR = (1<<4)|(1<<0);//stop current ADC1 conversion
+  while(ADC1->CR & (1<<4));//wait until ADC1 conversion is stopped
+  ADC1->CR = (1<<1)|(1<<0);//disable ADC1
+  while(ADC1->CR & (1<<0));//wait until ADC1 is completely disabled
+  ADC1->ISR = 0x9F;//clear all ADC1 flags
+  
+  //reset voltage measurements to zero, to avoid using old values after wakeup
+  LoggerInfo.SupplyVoltage = 0;
+  LoggerInfo.BatteryVoltage = 0;
+  
+  RCC->CR |= (1<<0);//enable HSI clock
+  while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
+  RCC->CFGR = 0;//use HSI as system clock
+  while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
+  RCC->CR &= ~(1<<16);//disable HSE clock
+  
+  while ( !(RTC->ISR & (1<<2)) );//wait until wakeup timer can be configured
+  RTC->WUTR = 10799;//make sure that MCU wakes up at least once every 3 hours
+  RTC->CR = (1<<14)|(1<<10)|(1<<2);//start wakeup timer, enable wakeup interrupt, use 1Hz clock
+  
+  __WFI();//MCU enters deep sleep mode (stop)
+  
+  RTC->CR &= ~(1<<10);//disable wakeup timer
+  RTC->ISR &= ~(1<<10);//clear wakeup timer flag  
+  
+  //MCU continues execution here after activity detection
+  RCC->CR |= (1<<19)|(1<<16);//enable HSE clock, clock security system
+  while( !(RCC->CR & (1<<17)) );//wait until HSE is ready
+  RCC->CFGR = (1<<0);//set HSE as system clock
+  while( !((RCC->CFGR & 0x0F) == 0b0101) );//wait until HSE is used as system clock
+  RCC->CR &= ~(1<<0);//disable HSI
+  
+  //enable ADC1 again
+  ADC1->CR = (1<<31);//start ADC1 calibration
+  while(ADC1->CR & (1<<31));//wait until calibration is complete
+  __DSB();//make sure all outstanding memory transfers are over
+  ADC1->CR = (1<<0);//enable ADC1
   while( !(ADC1->ISR & (1<<0)) );//wait until ADC1 is ready
+  ADC1->CFGR1 = (1<<13)|(1<<2);//continuous conversion mode, keep old data on overrun, scan backwards
+  ADC1->SMPR = (1<<2)|(1<<1)|(1<<0);//use 239.5 ADC cycles of sample time (59.875us at PCLK = 8Mhz)
+  ADC->CCR = (1<<22);//enable reference voltage for ADC1
+  ADC1->CHSELR = (1<<17)|(1<<9);//enable Vref and ADC_IN9 channels for ADC1
+  ADC1->CR = (1<<2)|(1<<0);//start making conversions
   
-  for(i=0; i<5; i++)
+  return;
+}
+
+//search through all GPX track files and make sure they all have proper GPX file termination
+static void verifyGPXfiles()
+{
+  FRESULT result;//holds return value of some fatfs related function
+  DIR DIRinfo;
+  
+  result = f_findfirst(&DIRinfo, &FILINFOinfo, "0:/", "*.GPX");//find if there are any existing tracks in flash memory  
+  while( (result == FR_OK) && FILINFOinfo.fname[0] )//keep searching until all tracks are verified
     {
-      ADC1->CR |= (1<<2);//start conversion
-      while( !(ADC1->ISR & (1<<3)) );//wait until conversion sequence is completed
-      ADC_Data = ADC_Data + ADC1->DR;//add new ADC measurement to the sum of previous ones
-      ADC1->ISR = 0x9E;//clear all ADC flags, except ADRDY
+      if( f_open(&FILinfo, &FILINFOinfo.fname[0], FA_READ | FA_WRITE) == FR_OK)//try to open the track file
+	{ 
+	  f_lseek(&FILinfo, FILINFOinfo.fsize - 7);//move read/write pointer back to where GPX file termination should be
+	  f_read(&FILinfo, (void*) &NMEAbuffer[0], 7, &temp);//read last 7 bytes from the file into NMEAbuffer[]
+	  
+	  LoggerInfo.NMEApointer = &NMEAbuffer[0];//move NMEApointer to the beginning of NMEAbuffer[]
+	  if( !checkKeyword("</gpx>") )//if "</gpx>" string was not found
+	    {
+	      //append GPX track and file terminations
+	      LoggerInfo.GPXsize = 0;
+	      appendGPXtext("</trkseg>\n");
+	      appendGPXtext("</trk>\n");
+	      appendGPXtext("</gpx>\n");
+	      
+	      f_lseek(&FILinfo, FILINFOinfo.fsize);//move read/write pointer to the end of file
+	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);//write GPX data to file
+	    }
+	  f_close(&FILinfo);
+	}
+      result = f_findnext(&DIRinfo, &FILINFOinfo);
     }
-
-  ADC1->CR |= (1<<1);//disable ADC1
+  f_closedir(&DIRinfo);
   
-  ADC_Data = ADC_Data / 5;//get an average value for Vref ADC measurement
+  return;
+}
 
-  Vdd_meas = (330000 * *((unsigned short*) 0x1FFFF7BA) ) / ADC_Data;// Vdd = 3.3V * VREFINT_CAL / VREFINT_DATA
+static void readConfigFile()
+{
+  unsigned char* whereToCheck = &NMEAbuffer[0];//used to count how many commands to process
+  unsigned char  messageCount = 0;//used to count how many commands to process
   
-  if(Vdd_meas < 282000 ) return 1;//if measured battery voltage is below 2.82V return 1
-  else return 0;
+  //reset fix interval to 1000ms
+  LoggerInfo.FixInterval[8]  = '1';
+  LoggerInfo.FixInterval[9]  = '0';
+  LoggerInfo.FixInterval[10] = '0';
+  LoggerInfo.FixInterval[11] = '0';
+  LoggerInfo.FixInterval[12] = 0x00;
+  LoggerInfo.FixInterval[13] = 0x00;
+  
+  //reset UTC offset to 0 minutes, clear all config flags
+  LoggerInfo.UTCoffset = 0;
+  LoggerInfo.ConfigFlags = 0;
+  
+  //try to open config.txt and load the settings from there
+  if( f_open(&FILinfo, "0:/config.txt", FA_READ) == FR_OK )
+    { 
+      f_read(&FILinfo, (void*) &NMEAbuffer[0], 512, &temp);
+      f_close(&FILinfo);
+      NMEAbuffer[temp] = 0x0A;//force append a newline character at the end (in case user did not put it there)
+      
+      while(whereToCheck != &NMEAbuffer[temp + 1])//find how many messages are to be processed
+	{
+	  if(*whereToCheck == 0x0A) messageCount++;
+	  whereToCheck++;
+	}
+      
+      LoggerInfo.NMEApointer = &NMEAbuffer[0];//start interpreting commands from the start of NMEAbuffer[]      
+      while(messageCount)//keep processing commands until no more left
+	{
+	       if( checkKeyword("FIX_INTERVAL ") )      setFixInterval( readValue(1) );
+	  else if( checkKeyword("UTC_OFFSET +") )       LoggerInfo.UTCoffset =  readValue(1);
+	  else if( checkKeyword("UTC_OFFSET -") )       LoggerInfo.UTCoffset = -readValue(1);
+	  else if( checkKeyword("ALLOW_SHORT_TRACKS") ) LoggerInfo.ConfigFlags |= (1<<0);
+	  else if( checkKeyword("DISABLE_1PPS_LED") )   LoggerInfo.ConfigFlags |= (1<<1);
+	  else if( checkKeyword("ENTER_DFU_MODE") )     LoggerInfo.ConfigFlags |= (1<<2);
+	  else if( checkKeyword("REPORT_SPEED") )       LoggerInfo.ConfigFlags |= (1<<4);
+	  else if( checkKeyword("REPORT_COURSE") )      LoggerInfo.ConfigFlags |= (1<<5);
+	  else if( checkKeyword("REPORT_NUMSAT") )      LoggerInfo.ConfigFlags |= (1<<6);
+	  else if( checkKeyword("REPORT_FIXTYPE") )     LoggerInfo.ConfigFlags |= (1<<7);
+	  else if( checkKeyword("MASS_ERASE") )        {mass_erase(); NVIC_SystemReset();}	  
+	  
+	  
+	  skipAfter(0x0A);//stop if no more configuration commands are found
+	  messageCount--;//one more command was processed
+	}
+      
+      //make sure UTC offset is between -24 hours and +24 hours
+      if(LoggerInfo.UTCoffset >  1440) LoggerInfo.UTCoffset =  1440;
+      if(LoggerInfo.UTCoffset < -1440) LoggerInfo.UTCoffset = -1440;      
+    }
+  
+  return;
+}
+
+static void setFixInterval(unsigned int newInterval)
+{ 
+  unsigned short divideBy = 10000;
+  unsigned char i = 8;
+  
+  //make sure newInterval value is between 200 and 10000
+  if(newInterval < 200)   newInterval = 200;
+  if(newInterval > 10000) newInterval = 10000;
+  
+  //convert newInterval integer to ASCII string, have no zeroes in the prefix (eg. have "235" instead of "00235" )
+  while(divideBy)
+    {
+      LoggerInfo.FixInterval[i] = 48 + (newInterval / divideBy) % 10;
+      divideBy = divideBy / 10;
+      if(LoggerInfo.FixInterval[8] != 48) i++;
+    }
+  LoggerInfo.FixInterval[i] = 0x00;//append string terminator at the end
+    
+  return;
+}
+
+static void setDateTime()
+{
+  //start with local date equal to UTC date
+  unsigned char localYear  = ((LoggerInfo.RMCdata).date % 100);
+  unsigned char localMonth = ((LoggerInfo.RMCdata).date / 100) % 100;
+  unsigned char localDay   = ((LoggerInfo.RMCdata).date / 10000);
+  short localMinutes = 0;//used to store time of the day, in units of 1 minute
+  
+  //change last day number in february to 29 in case of a leap year
+  if( (localYear % 4) == 0 ) MonthToDays[1] = 29;
+  else                       MonthToDays[1] = 28;
+  
+  //calculate local time from UTC time (convert hours to minutes)
+  localMinutes = ((LoggerInfo.RMCdata).time / 10000000) * 60 + ((LoggerInfo.RMCdata).time / 100000) % 100 + LoggerInfo.UTCoffset;
+  
+  if(localMinutes > 1440)//if necessary, move date 1 day forward
+    {      
+      if(localDay < MonthToDays[localMonth - 1]) localDay++;//if there is no need to change month
+      else//if next day will be in a new month, switch to a new month
+	{ 
+	  if(localMonth < 12) localMonth++;//if there is no need to change year
+	  else//if next month will be in a new year, switch to a new year
+	    {
+	      localMonth = 1;
+	      localYear++;
+	    }
+	  
+	  localDay = 1;
+	}
+      
+      localMinutes = localMinutes - 1440;//take date change into account
+    }
+  
+  else if (localMinutes < 0)//if necessary, move date 1 day backward
+    {
+      if(localDay > 1) localDay--;//if there is no need to change month
+      else//if previous day will be in a previous month, switch to previous month
+	{	  
+	  if(localMonth > 1) localMonth--;//if there is no need to change year
+	  else//if previous month will be in a previous year, switch to previous year
+	    {
+	      localMonth = 12;
+	      localYear--;
+	    }
+	  
+	  localDay = MonthToDays[localMonth - 1];
+	}
+      
+      localMinutes = localMinutes + 1440;//take date change into account
+    }
+  
+  //write local year, month and day in FileName[]
+  LoggerInfo.FileName[0]  = (localYear / 10) + 48;
+  LoggerInfo.FileName[1]  = (localYear % 10) + 48;
+  LoggerInfo.FileName[2]  = '-';
+  LoggerInfo.FileName[3]  = (localMonth / 10) + 48;
+  LoggerInfo.FileName[4]  = (localMonth % 10) + 48;
+  LoggerInfo.FileName[5]  = '-';
+  LoggerInfo.FileName[6]  = (localDay / 10) + 48;
+  LoggerInfo.FileName[7]  = (localDay % 10) + 48;
+  LoggerInfo.FileName[8]  = '.';
+  LoggerInfo.FileName[9]  = 'G';
+  LoggerInfo.FileName[10] = 'P';
+  LoggerInfo.FileName[11] = 'X';
+  LoggerInfo.FileName[12] = 0;
+  
+  //write local hour, minute and second in TrackName[]
+  LoggerInfo.TrackName[0] = (localMinutes / 60) / 10 + 48;
+  LoggerInfo.TrackName[1] = (localMinutes / 60) % 10 + 48;
+  LoggerInfo.TrackName[2] = ':';
+  LoggerInfo.TrackName[3] = (localMinutes % 60) / 10 + 48;
+  LoggerInfo.TrackName[4] = (localMinutes % 60) % 10 + 48;
+  LoggerInfo.TrackName[5] = ':';
+  LoggerInfo.TrackName[6] = ((LoggerInfo.RMCdata).time / 10000) % 10 + 48;
+  LoggerInfo.TrackName[7] = ((LoggerInfo.RMCdata).time /  1000) % 10 + 48;
+  LoggerInfo.TrackName[8] = 0; 
+  
+  return;
+}
+
+//if referenceString is found at LoggerInfo.NMEApointer, return 1 and move to the next keyword
+static char checkKeyword(char* referenceString)
+{
+  unsigned char* whereToCheck = LoggerInfo.NMEApointer;
+  
+  //keep comparing characters until the end of reference string
+  while(*referenceString)
+    {
+      //if a mismatch is found, stop the function and return 0
+      if( *whereToCheck != *referenceString ) return 0;
+      referenceString++;//move to next character in keyword
+      
+      //move to next character in NMEAbuffer[]
+      if(whereToCheck < &NMEAbuffer[1023]) whereToCheck++;
+      else whereToCheck = &NMEAbuffer[0];
+    }
+  
+  //if requested keyword was actually found, move NMEApointer to next keyword
+  LoggerInfo.NMEApointer = whereToCheck;
+  return 1;
+}
+
+//convert decimal ASCII string to integer, this string can have a dot in the
+//middle; in this case value before the dot is multiplied by specified factor,
+//value after the dot is evaluated as a fraction of specified factor
+static unsigned int readValue(unsigned int factor)
+{
+  unsigned int beforeDot = 0;//holds conversion result for number before the dot
+  unsigned int  afterDot = 0;//holds conversion result for number  after the dot
+  
+  //keep comparing until some non-digit symbol is found
+  while( (*LoggerInfo.NMEApointer > 47) && (*LoggerInfo.NMEApointer < 58) )
+    {
+      //convert ASCII symbol to integer
+      beforeDot = beforeDot * 10 + (*LoggerInfo.NMEApointer - 48);
+      
+      //move to next character in NMEAbuffer[]
+      if(LoggerInfo.NMEApointer < &NMEAbuffer[1023]) LoggerInfo.NMEApointer++;
+      else LoggerInfo.NMEApointer = &NMEAbuffer[0];
+    }
+  
+  if(*LoggerInfo.NMEApointer == '.')//if there is a dot in the middle of value
+    {
+      beforeDot = beforeDot * factor;//multiply value before dot by specified factor
+      
+      //move to next character in NMEAbuffer[]
+      if(LoggerInfo.NMEApointer < &NMEAbuffer[1023]) LoggerInfo.NMEApointer++;
+      else LoggerInfo.NMEApointer = &NMEAbuffer[0];
+    }
+  
+  //keep comparing until some non-digit symbol is found
+  while( (*LoggerInfo.NMEApointer > 47) && (*LoggerInfo.NMEApointer < 58) )
+    {
+      //convert ASCII symbol to integer
+      factor = factor / 10;
+      afterDot = afterDot + (*LoggerInfo.NMEApointer - 48) * factor;      
+      
+      //move to next character in NMEAbuffer[]
+      if(LoggerInfo.NMEApointer < &NMEAbuffer[1023]) LoggerInfo.NMEApointer++;
+      else LoggerInfo.NMEApointer = &NMEAbuffer[0];
+    }
+  
+  return beforeDot + afterDot;
+}
+
+//move NMEApointer to the next character after specified symbol
+static void skipAfter(char symbol)
+{
+  //keep inceasing NMEApointer until specified symbol is found
+  while( *LoggerInfo.NMEApointer != symbol )
+    {
+      //move to next character in NMEAbuffer[]
+      if(LoggerInfo.NMEApointer < &NMEAbuffer[1023]) LoggerInfo.NMEApointer++;
+      else LoggerInfo.NMEApointer = &NMEAbuffer[0];
+    }
+  
+  //move to next character in NMEAbuffer[]
+  if(LoggerInfo.NMEApointer < &NMEAbuffer[1023]) LoggerInfo.NMEApointer++;
+  else LoggerInfo.NMEApointer = &NMEAbuffer[0];
+  
+  return;
+}
+
+static void enterBootloader()
+{
+  //set function pointer to a value specified in the vector table of System Memory
+  void (*bootloader)(void) = (void (*)(void)) ( *((unsigned int*) (0x1FFFC804U)) );
+  
+  if( f_unlink("0:/config.txt") != FR_OK) return;
+  
+  //disable all interrupts in the NVIC
+  NVIC_DisableIRQ(2);
+  NVIC_DisableIRQ(7);
+  NVIC_DisableIRQ(10);
+  
+  //clear all pending interrupts
+  NVIC_ClearPendingIRQ(2);
+  NVIC_ClearPendingIRQ(7);
+  NVIC_ClearPendingIRQ(10);
+  
+  //reset all peripherals  
+  RCC->AHBRSTR  = 0x017E0000;
+  RCC->APB1RSTR = 0x7AFE4933;
+  RCC->APB2RSTR = 0x00475AE1;
+  RCC->BDCR |= (1<<16);
+  RCC->AHBRSTR  = 0x00000000;
+  RCC->APB1RSTR = 0x00000000;
+  RCC->APB2RSTR = 0x00000000;
+  RCC->BDCR &= ~(1<<16);
+  
+  //disable all peripheral clocks
+  RCC->AHBENR  = 0x00000014;
+  RCC->APB1ENR = 0x00000000;
+  RCC->APB2ENR = 0x00000000;
+  RCC->CFGR2   = 0x00000000;
+  RCC->CFGR3   = 0x00000000;
+  RCC->CR2     = 0x00000080;
+  RCC->CSR     = 0x00000000;
+  while(RCC->CSR & (1<<1));//wait until LSI is turned off
+  
+  RCC->CR |= (1<<0);//enable HSI clock
+  while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
+  RCC->CFGR = 0;//set HSI as system clock
+  while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock  
+  RCC->CR = 0x0083;//disable PLL, HSE clocks; disable CSS
+  
+  //clear all clock ready flags
+  RCC->CIR = 0x00FF0000;
+  
+  __DSB();//make sure all outstanding memory transfers are over before changing MSP value
+  __set_MSP(0x20003FFC);//move main stack pointer back to the top
+  __ISB();//make sure the effect of changing MSP value is visible immediately
+  bootloader();//jump to bootloader code
+  
+  NVIC_SystemReset();//reset the system if CPU ever returns
+  return;
 }

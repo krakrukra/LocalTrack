@@ -1,8 +1,8 @@
 /*---------------------------------------------------------------------------/
-/  FatFs - Configuration file
+/  FatFs Functional Configurations
 /---------------------------------------------------------------------------*/
 
-#define FFCONF_DEF 63463	/* Revision ID */
+#define FFCONF_DEF	86604	/* Revision ID */
 
 /*---------------------------------------------------------------------------/
 / Function Configurations
@@ -33,12 +33,12 @@
 /  2: Enable with LF-CRLF conversion. */
 
 
-#define FF_USE_FIND	1
+#define FF_USE_FIND		1
 /* This option switches filtered directory read functions, f_findfirst() and
 /  f_findnext(). (0:Disable, 1:Enable 2:Enable with matching altname[] too) */
 
 
-#define FF_USE_MKFS	0
+#define FF_USE_MKFS		0
 /* This option switches f_mkfs() function. (0:Disable or 1:Enable) */
 
 
@@ -129,8 +129,8 @@
 /  When LFN is not enabled, this option has no effect. */
 
 
-#define FF_LFN_BUF	255
-#define FF_SFN_BUF	12
+#define FF_LFN_BUF		255
+#define FF_SFN_BUF		12
 /* This set of options defines size of file name members in the FILINFO structure
 /  which is used to read out directory items. These values should be suffcient for
 /  the file names to read. The maximum possible length of the read file name depends
@@ -150,7 +150,7 @@
 */
 
 
-#define FF_FS_RPATH	0
+#define FF_FS_RPATH		1
 /* This option configures support for relative path.
 /
 /   0: Disable relative path and remove related functions.
@@ -223,16 +223,16 @@
 / System Configurations
 /---------------------------------------------------------------------------*/
 
-#define FF_FS_TINY	0
+#define FF_FS_TINY		0
 /* This option switches tiny buffer configuration. (0:Normal or 1:Tiny)
 /  At the tiny configuration, size of file object (FIL) is shrinked FF_MAX_SS bytes.
 /  Instead of private sector buffer eliminated from the file object, common sector
 /  buffer in the filesystem object (FATFS) is used for the file data transfer. */
 
 
-#define FF_FS_EXFAT	0
+#define FF_FS_EXFAT		0
 /* This option switches support for exFAT filesystem. (0:Disable or 1:Enable)
-/  To enable exFAT, also LFN needs to be enabled.
+/  To enable exFAT, also LFN needs to be enabled. (FF_USE_LFN >= 1)
 /  Note that enabling exFAT discards ANSI C (C89) compatibility. */
 
 
@@ -250,7 +250,7 @@
 /  These options have no effect at read-only configuration (FF_FS_READONLY = 1). */
 
 
-#define FF_FS_LOCK	0
+#define FF_FS_LOCK		0
 /* The option FF_FS_LOCK switches file lock function to control duplicated file open
 /  and illegal operation to open objects. This option must be 0 when FF_FS_READONLY
 /  is 1.
@@ -262,9 +262,10 @@
 /      lock control is independent of re-entrancy. */
 
 
+/* #include <somertos.h>	// O/S definitions */
 #define FF_FS_REENTRANT	0
 #define FF_FS_TIMEOUT	1000
-#define FF_SYNC_t		HANDLE
+#define FF_SYNC_t	HANDLE
 /* The option FF_FS_REENTRANT switches the re-entrancy (thread safe) of the FatFs
 /  module itself. Note that regardless of this option, file access to different
 /  volume is always re-entrant and volume control functions, f_mount(), f_mkfs()
@@ -281,8 +282,6 @@
 /  The FF_SYNC_t defines O/S dependent sync object type. e.g. HANDLE, ID, OS_EVENT*,
 /  SemaphoreHandle_t and etc. A header file for O/S definitions needs to be
 /  included somewhere in the scope of ff.h. */
-
-/* #include <windows.h>	// O/S definitions  */
 
 
 

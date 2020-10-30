@@ -6,32 +6,28 @@ SEARCH_DIR("./stdlib");
 MEMORY
 {
   ROM  (rx) : ORIGIN = 0x08000000, LENGTH = 64k
-  SRAM (rw) : ORIGIN = 0x20000000, LENGTH = 8k
+  SRAM (rw) : ORIGIN = 0x20000000, LENGTH = 16k
 }
 
 SECTIONS
 {
-  . = ALIGN(4);
-  .vectab : ALIGN(4) { support.o(.vectab) }>ROM
-  . = ALIGN(4);
-  .text : ALIGN(4) { *(.text*) }>ROM
-  . = ALIGN(4);
-  .rodata : ALIGN(4) { *(.rodata*) }>ROM
-  . = ALIGN(4);
-  __text_end__ = .;
+  .vectab : ALIGN(4) { support.o(.vectab) }>ROM AT>ROM
+  .text : ALIGN(4) { *(.text*) }>ROM AT>ROM
+  .rodata : ALIGN(4) { *(.rodata*) }>ROM AT>ROM
+  __text_end__ = ALIGN(4);
 
-  . = ALIGN(4);
   .data : ALIGN(4)
   {
   __data_start__ = .;
   *(.data)
-  __data_end__ = .;
+  __data_end__ = ALIGN(4);
   }>SRAM AT>ROM
-
-  . = ALIGN(4); 
-  __bss_start__ = .;
-  .bss : ALIGN(4) { *(.bss) }>SRAM AT>SRAM
-  __bss_end__ = .;
+  
+  .bss : ALIGN(4)
+  {
+  *(.bss)
+  __bss_end__ = ALIGN(4);
+  }>SRAM AT>SRAM
 
   end = .;
 }
