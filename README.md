@@ -17,18 +17,19 @@ but other advantages of network-disconnected design are desirable, such as:
 1. No need to pay your cellular service provider.  
   
 2. Local file storage, so you don't have to trust your data to some proprietary  
-and often insecure manufacturer's mapping software.  
+manufacturer's software or depend on a particular service being provided.  
   
 3. Logger is harder to detect; if discovered, it is hard to trace where it came from,  
-as it does not contain registered information like IMEI, IMSI, payment history, etc.  
+as it does not have information like IMEI, IMSI, payment history, etc. linked to it.  
   
 4. Less power consumption and longer battery life.  
   
 **CHECK THE [WIKI](https://github.com/krakrukra/LocalTrack/wiki) FOR HOW-TO-USE INFORMATION**  
   
 ---
-
+  
 ## hardware
+  
 Project is designed using KiCad 5.0.2  
 Check KiCad pcb file for PCB manufacturing info  
 Check KiCad sch file + BOM.txt for component info  
@@ -55,11 +56,11 @@ a cable with extra long 8mm micro USB plug, instead of the usual 5.4mm plug.
 ## firmware  
   
 Programming language used = C  
-flashing software used = openocd  
+Flashing software used = openocd  
 IDE used = emacs text editor + Makefile  
   
-The firmware was developed on debian 10.3 system, using gcc-arm-none-eabi toolchain  
-(compiler, linker, binutils) and it does use gcc specific extentions.  
+The firmware was developed on debian 10.3 system, using gcc-arm-none-eabi  
+toolchain (compiler, linker, binutils) and it does use gcc specific extentions.  
 it was successfully compiled and tested with arm-none-eabi-gcc version 7.3.1  
   
 Depends on libgcc.a, which is included in this repository. linker script,  
