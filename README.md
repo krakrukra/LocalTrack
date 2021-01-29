@@ -1,8 +1,7 @@
 # LocalTrack  
-
-put pictures here  
-![outside](extra/pictures/photos/1.jpg)  
-![inside](extra/pictures/photos/2.jpg)  
+  
+![outside](extra/photos/outside.jpg)  
+![inside](extra/photos/inside.jpg)  
   
 This device is an open source (both firmware and board level design) GPS data logger.  
 You mount it with built-in magnets on some vehicle, flip the power switch and the location  
@@ -45,8 +44,8 @@ Firmare here expects 9600 baudrate version. If you have different module version
 you will need to modify USART1 configuration in main.c and peripheral.c files.  
   
 Device has a 3000mAh li-po battery and can function with battery voltage above 3V.  
-If lower voltage is detected, device enters sleepmode until the power switch is  
-set OFF and battery recharged. Current consumption while tracking is around 40mA;  
+If lower voltage is detected, device enters low battery mode and waits until  
+the battery is recharged. Current consumption while tracking is around 40mA;  
 while waiting in sleepmode (eg. due to lack of movement) it is less than 1mA.  
 This results in about 70 hours of active tracking before battery is depleted.  
 Battery can be charged via USB with up to 1A of current, so make sure to pick  
@@ -67,14 +66,14 @@ Depends on libgcc.a, which is included in this repository. linker script,
 startup code and openocd configuration files are included here as well.  
   
 For easy in-field updates, you can use the DFU bootloader. There is a dfu  
-firmware image available in /firmware/firmware\_RRNNN.dfu file. The name  
+firmware image available in **/firmware/firmware\_RRNNN.dfu** file. The name  
 format is this: RR stands for board revision (13 = rev 1.3) , NNN stands  
 for firmware version. For example, firmware\_13000.dfu means board  
 revision 1.3, firmware version 0  
   
   
 To automate firmware build process you can use make utility. If you  
-open terminal in /firmware/ directory, you could run these commands:  
+open terminal in **/firmware/** directory, you could run these commands:  
   
 > make  
 > make upload  
@@ -84,7 +83,7 @@ open terminal in /firmware/ directory, you could run these commands:
 "make" will compile source code and create several files, among them  
 is firmware.bin which contains firmware to flash. "make upload" will  
 flash this file via St-Link V2 programmer. Make sure to connect the  
-programmer to the board properly, before you plug it in and run the  
+programmer to the board properly, before you plug it into PC and run the  
 command. "make dfu" will create a DFU firmware image from firmware.bin  
 which can be used later by DFU flashing software. "make clean" will  
 delete all the compiled or temporary files created by previous commands.  
@@ -107,8 +106,12 @@ delete all the compiled or temporary files created by previous commands.
 /hardware/gerbers/ ----------- gerber+excellon fabrication output files  
 /hardware/BOM.txt --------- list of parts and accessories needed for DIY assembly  
   
+#### /mechanical/ ------------------- contains device's mechanical information  
+/mechanical/drawings/ ---- mechanical drawings for some of the parts  
+/mechanical/KH-F20.FCStd --- freecad model for the plastic enclosure  
+  
 #### /extra/ -------------------  contains pictures, documentation, etc.  
-/extra/pictures/ ---------------- photos and mechanical drawings  
+/extra/photos/ ---------------- photos or the device  
 /extra/wiki/ ------------------ github wiki pages  
   
 ## contact info  

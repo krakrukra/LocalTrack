@@ -19,7 +19,7 @@ SI2302 N-channel mosfet --- 4pcs
 SI2301 P-channel mosfet --- 2pcs
 IP4220CZ6 ESD protection diode --- 2pcs
 ADXL345BCCZ MEMS accelerometer --- 1pcs
-0805 (metric 2012) ceramic capacitor 10uF X5R 10% 10V --- 4pcs
+0805 (metric 2012) ceramic capacitor 10uF X5R 10% 16V --- 4pcs
 0603 (metric 1608) ceramic capacitor 100nF X7R 10% 50V --- 9pcs
 0603 (metric 1608) ceramic capacitor 18pF C0G 5% 50V --- 2pcs
 0603 (metric 1608) resistor 100 kOhm 5% tolerance --- 6pcs
@@ -33,40 +33,38 @@ ADXL345BCCZ MEMS accelerometer --- 1pcs
 
 
 5x1 male pin header, vertical, 2.54mm pitch --- 1pcs
-2x1 male pin header, vertical, 2.54mm pitch --- 1pcs (optional)
 
 noname? horizontal micro USB connector --- 1pcs
     https://www.aliexpress.com/item/32765504799.html?spm=a2g0s.9042311.0.0.27424c4d25ZRpn
 
 8.4mm diameter, 3mm length (without head) rubber plug --- 1pcs
+    https://www.aliexpress.com/item/32974255931.html?spm=a2g0s.9042311.0.0.27424c4dMrhNHr
 
 KCD1-11 rocker switch --- 1pcs
-    you can optionally have a waterproof cover as provided via link below
+    I recommend to have a waterproof cover as provided via link below
     https://www.aliexpress.com/item/32629402383.html?spm=2114.12010615.8148356.1.42cc4956SZfa4w
 
 EHAO 3.7V 3000mAh li-po battery 103565 --- 1pcs
-    this battery is glued on to the removable lid
     https://www.aliexpress.com/item/32879938149.html?spm=2114.12010615.8148356.1.24ac47076SXkWI
 
 cyllindrical neodymium magnet 20mm diameter, 3mm height --- 6pcs
-    these are glued on to removable lid and may be sealed with a sheet
-    of high permeability material. Battery is then glued on top of that
-    https://www.aliexpress.com/item/32481380280.html?spm=2114.12010615.8148356.1.66705152ENO19u
+    these are glued on to removable lid, battery is then glued on top of that
+    https://www.aliexpress.com/item/1005001531120300.html?spm=2114.12010615.8148356.1.3cd2124djIm2U7
 
 KH-F20 plastic enclosure (search aliexpress for 85x58x33mm enclosure), no mounting ears, nontransparent lid --- 1pcs
     https://www.aliexpress.com/item/32894036224.html?spm=2114.12010615.8148356.1.1ebabbe00pWpPx
 
-M3 countersunk head screw, 13mm length (without head) --- 4 pcs
+M3 countersunk head screw, 14mm length (without head) --- 4 pcs
     these should be included together with KH-F20 enclosure from the seller
 
 M3 screw, 4mm length (without head) --- 4pcs
-    https://www.aliexpress.com/item/100Pcs-M3-Screw-Diameter-3mm-Length-5mm-M3x5-Stainless-Steel-DIY-New-M3-5mm-Round-head/32599502547.html?spm=a2g0s.9042311.0.0.350b4c4dU1J6kL
+    https://www.aliexpress.com/item/32599502547.html?spm=2114.12010615.8148356.3.70285928tJKceJ
 
 ---------------------------------------------------------------------------------------------------
 
 List of Accessories:
 
-charging USB cable (1A or more) with extra long 8mm plug --- 1pcs
+charging micro USB cable (1A or more) with extra long 8mm plug --- 1pcs
     https://www.aliexpress.com/item/4000791946144.html?spm=a2g0s.9042311.0.0.146f4c4dBIaPAg
 
 USB charger with detachable cable, output current of 1A or more --- 1pcs

@@ -1,10 +1,9 @@
 LocalTrack provides end user an ablity to update firmware  
 over USB using DFU bootloader. To do so, you will need to  
 install some dedicated software on your PC and connect the  
-LocalTrack to this same PC making sure that your device  
-is in DFU mode. Then, you feed a particular firmware image  
-in DfuSe format to this dedicated software and wait for it  
-to finish the update.  
+LocalTrack to this same PC, while your device is in DFU mode.  
+Then, you feed a particular firmware image in DfuSe format  
+to this dedicated software and wait for it to finish the update.  
 The latest firmware image is available in the repository, in  
 **/firmware/firmware_13nnn.dfu** file, where nnn is a number  
 which stands for firmware version (eg. firmware_13000.dfu);  
@@ -51,7 +50,8 @@ then connect the device and it will enter DFU mode right away;
 6. wait for 1-2 seconds and connect it back again  
 7. start DfuSe demo, click on "Choose" button (bottom right)  
 8. select the /firmware/firmware_13nnn.dfu file  
-9. click on "Upgrade" button (bottom right)  
-10. confirm by clicking "yes", wait update process
-11. toggle the power switch off and diconnect  
+9. select "Internal Flash" as target region (Target ID = 00)  
+10. click on "Upgrade" button (bottom right)  
+11. confirm by clicking "yes", wait for update process  
+12. toggle the power switch off and disconnect  
   

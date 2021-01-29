@@ -1,8 +1,7 @@
 #ifndef USB_RODATA_H
 #define USB_RODATA_H
 
-//device descriptor is not "static" and not in ".rodata" section to allow for dynamic VID/PID change
-DeviceDescriptor_TypeDef DeviceDescriptor __attribute__(( aligned(2) )) =
+static DeviceDescriptor_TypeDef DeviceDescriptor __attribute__(( aligned(2), section(".rodata,\"a\",%progbits@") )) =
 {
   .bLength            = sizeof(DeviceDescriptor_TypeDef),
   .bDescriptorType    = 0x01,//DEVICE descriptor type

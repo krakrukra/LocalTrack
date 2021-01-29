@@ -13,7 +13,7 @@ asm:
 	arm-none-eabi-gcc -Wall -fno-common -std=gnu11 -mthumb -mcpu=cortex-m0 -Os -S main/*.c usb/*.c fatfs/*.c
 
 clean:
-	rm -f *.o *.s firmware.* *~ *# *.dfu
+	rm -f *.o *.s firmware.* *~ *#
 	rm -f main/*~ main/*#
 	rm -f usb/*~ usb/*#
 	rm -f fatfs/*~ fatfs/*#

@@ -5,31 +5,34 @@
 #include "../usb/usb.h"
 
 //regular state check functions
-static void sleepmodeCheck();//check if activity/inactivity signals are present, react accordingly
-static void diskmodeCheck();//if USB cable is connected, ignore incoming NMEA data and only act as USB disk
-static void batteryCheck();//if supply voltage is too low, go to sleepmode until a power reset
-static void processNMEA();//process a specified 512 byte block of NMEA data
+static void sleepmodeCheck();
+static void diskmodeCheck();
+static void voltageCheck();
 
-//generic functions
+//functions for processing of NMEA data
+static void processNMEA();
 static void processGPRMC();
 static void processGPGGA();
 static void processGPGSA();
+static char checkKeyword(char* referenceString);
+static unsigned int readValue(unsigned int factor);
+static void skipAfter(char symbol);
+
+//functions for creating GPX output
 static void startNewTrack();
 static void stopCurrentTrack();
 static void addTrackPoint();
 static void appendGPXtext(char* text);
 static void appendGPXvalue(int value, unsigned int divisor, unsigned int skipLimit);
 
-//functions to write appropriate values in configuration strings
-static void MCUsleep();//enter MCU sleep mode, wake up on interrupt
-static void verifyGPXfiles();//append GPX track and file terminations to all GPX files that do not have it
-static void readConfigFile();//write configuration values/strings according to config.txt and last TRK* filename
-static void setFixInterval(unsigned int newInterval);//sets time interval between position fixes
-static void setDateTime();//fill FileName and TrackName arrays based on current date and time
+//functions to write appropriate configuration values
+static void readConfigFile();
+static void setFixInterval(unsigned int newInterval);
+static void setDateTime();
 
-static char checkKeyword(char* referenceString);
-static unsigned int readValue(unsigned int factor);
-static void skipAfter(char symbol);
+//other functions
+static void MCUsleep();
+static void verifyGPXfiles();
 static void enterBootloader();
 
 //FATFS related global variables
@@ -76,7 +79,7 @@ LoggerInfo_TypeDef LoggerInfo =
     .vdop = 5000,
     .fixType = 1 
    },
-
+   
    .SupplyVoltage = 0,
    .BatteryVoltage = 0,
    .TrackFileOffset = 0,
@@ -125,17 +128,17 @@ int main()
   I2C1->TIMINGR = (0x0<<28)|(0x3<<20)|(0x1<<16)|(0x3<<8)|(0x9<<0);//PRESC=0x0, SCLDEL=0x3, SDADEL=0x1, SCLH=0x3, SCLL=0x9 (400kHz clock)
   I2C1->CR1 |= (1<<0);//enable I2C1
   
-  //ADC1 configuration  
+  //ADC1 configuration
   ADC1->CR = (1<<31);//start ADC1 calibration
   while(ADC1->CR & (1<<31));//wait until calibration is complete
   __DSB();//make sure all outstanding memory transfers are over
   ADC1->CR = (1<<0);//enable ADC1
   while( !(ADC1->ISR & (1<<0)) );//wait until ADC1 is ready
-  ADC1->CFGR1 = (1<<13)|(1<<2);//continuous conversion mode, keep old data on overrun, scan backwards
+  ADC1->CFGR1 = (1<<16)|(1<<2);//discontinuous conversion mode, keep old data on overrun, scan backwards
   ADC1->SMPR = (1<<2)|(1<<1)|(1<<0);//use 239.5 ADC cycles of sample time (59.875us at PCLK = 8Mhz)
   ADC->CCR = (1<<22);//enable reference voltage for ADC1
   ADC1->CHSELR = (1<<17)|(1<<9);//enable Vref and ADC_IN9 channels for ADC1
-  ADC1->CR = (1<<2)|(1<<0);//start making conversions
+  ADC1->CR = (1<<2)|(1<<0);//start new ADC conversion
   
   //RTC configuration
   while( !(RCC->CSR & (1<<1)) );//wait until LSI is ready
@@ -156,32 +159,39 @@ int main()
 //------------------------------------------------------------------------------------
   
   restart_tim2(5);//have a startup delay of 5ms for W25N01GVZEIG
-  while(TIM2->CR1 & (1<<0)) batteryCheck();//while timer runs out, keep checking battery voltage
+  while(TIM2->CR1 & (1<<0)) voltageCheck();//while timer runs out, keep measuring battery and supply voltages
+  
+  //do not proceed unless battery voltage is sufficient for operation
+  if( (LoggerInfo.SupplyVoltage < 285000) && (LoggerInfo.BatteryVoltage < 305000) )
+    {
+      sim28_init();//configure SIM28, ensure it is in a known state
+      sim28_sleep();//tell SIM28 to enter sleepmode
+      while( (LoggerInfo.SupplyVoltage < 310000) || (LoggerInfo.BatteryVoltage < 320000) ) voltageCheck();//wait until battery is recharged
+    }
+  
   
   if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if f_mount() was successful
     { 
       verifyGPXfiles();//append GPX track and file terminations to all GPX files that do not have it (eg. because of poweroff)
       readConfigFile();//run configuration commands from config.txt
       sim28_init();//configure SIM28, ensure it is in a known state
-      
-      adxl_init();//initialize ADXL345
-    }
+      restart_tim3(300);//set sleepmode timer to 5 minutes
+     }
   else//if no valid FAT was found
     {
       disk_initialize(0);//initialize the flash storage for MSD use
       sim28_init();//configure SIM28, ensure it is in a known state
       sim28_sleep();//tell SIM28 to enter sleepmode, since there is nowhere to store the data
-      
-      //disable activity/inactivity detection
-      adxl_standby();
-      adxl_clear();
+      restart_tim3(60);//set sleepmode timer to 1 minute
     }
+  
+  adxl_init();//initialize ADXL345
   
   while(1)
     { 
-      batteryCheck();//if battery voltage is insufficient for operation, go to sleepmode
+      voltageCheck();//measure battery and supply voltages, save results in RAM
       diskmodeCheck();//if USB cable is connected go to diskmode
-      sleepmodeCheck();//if inactivity is detected go to sleepmode
+      sleepmodeCheck();//if sleepmode timer has run out, go to sleepmode
       processNMEA();//if new 512 byte block of NMEA data is received, process messages inside
       garbage_collect();//if some block in flash became invalid, erase it
     }
@@ -192,26 +202,57 @@ int main()
 
 //------------------------------------------------------------------------------------
 
-//check for inactivity signal; if present, enter stop mode
+//if necessary, enter sleep mode (or low battery mode)
 static void sleepmodeCheck()
 {
-  //if both activity and inactivity signals are present, restart ADXL345
-  if( (GPIOC->IDR & (1<<15)) && (GPIOC->IDR & (1<<14)) ) adxl_init();
-  //if inactivity was detected and in the last 1 minute speed was not more than 5 km/h
-  else if( (GPIOC->IDR & (1<<14)) && !(TIM3->CR1 & (1<<0)) )
+  if( (GPIOC->IDR & (1<<15)) && (LoggerInfo.TrackName[0]) )//if activity was detected while some GPX track is being written
+    {
+      restart_tim3(120);//reset sleepmode timer to 2 minutes
+      adxl_clear();//clear activity signal
+    }
+  
+  if( !(TIM3->CR1 & (1<<0)) )//if sleepmode timer had ran out (no activity or speed detected)
     {
       stopCurrentTrack();//if some track file was being written, add track termination
       sim28_sleep();//tell SIM28 to enter sleepmode
+      adxl_clear();//clear activity signal, so that MCU can wake up on new activity detection
       MCUsleep();//enter MCU sleep mode
       
-      sim28_init();//wake up SIM28
-      adxl_init();//restart ADXL345
+      if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if valid filesystem is available
+	{
+	  sim28_init();//wake up SIM28
+	  restart_tim3(300);//set sleepmode timer to 5 minutes
+	}
+      else//if filesystem can not be mounted
+	{
+	  //keep SIM28 in sleep mode
+	  restart_tim3(60);//set sleepmode timer to 1 minute
+	}
+    }
+  
+  //if battery and supply voltages are not sufficient for device operation
+  if( (LoggerInfo.SupplyVoltage < 285000) && (LoggerInfo.BatteryVoltage < 305000) )
+    {
+      stopCurrentTrack();//if some track file was being written, add track and file termination
+      sim28_sleep();//tell SIM28 to enter sleepmode
+      while( (LoggerInfo.SupplyVoltage < 310000) || (LoggerInfo.BatteryVoltage < 320000) ) voltageCheck();//wait until battery is recharged
+      
+      if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if valid filesystem is available
+	{
+	  sim28_init();//wake up SIM28
+	  restart_tim3(300);//set sleepmode timer to 5 minutes
+	}
+      else//if filesystem can not be mounted
+	{
+	  //keep SIM28 in sleep mode
+	  restart_tim3(60);//set sleepmode timer to 1 minute
+	}
     }
   
   return;
 }
 
-//check if USB cable is connected; if it is, enter disk mode
+//if USB cable is connected, ignore incoming NMEA data and only act as USB disk
 static void diskmodeCheck()
 {
   if(GPIOB->IDR & (1<<13))//if VBUS voltage is detected
@@ -226,7 +267,7 @@ static void diskmodeCheck()
       while( !(RCC->CR & (1<<25)) );//wait until PLL is ready
       RCC->CFGR = (1<<20)|(1<<16)|(1<<1);//set PLL as system clock
       while( !((RCC->CFGR & 0x0F) == 0b1010) );//wait until PLL is used as system clock
-
+      
       if(LoggerInfo.ConfigFlags & (1<<2)) enterBootloader();
       else usb_init();//initialize USB peripheral
       while(GPIOB->IDR & (1<<13)) usb_handler();//while USB cable is plugged in, act as flash disk only
@@ -242,58 +283,42 @@ static void diskmodeCheck()
       FLASH->ACR = 0;//disable prefetch buffer, have no wait state for flash read access (because SYSCLK will be 8MHz)
       
       if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//reinitialize FATFSinfo structure, in case the filesystem was altered during USB diskmode
-      {	
-	readConfigFile();//start saving data in a new TRK*.TXT file, load new configuration from config.txt
-	sim28_init();//wake up SIM28
-	
-	adxl_init();//reinitialize ADXL345
-      }
-      else
-	{
-	  //disable activity/inactivity detection, keep SIM28 in sleepmode
-	  adxl_standby();
-	  adxl_clear();
+	{	
+	  readConfigFile();//load new configuration from config.txt
+	  sim28_init();//wake up SIM28
+	  restart_tim3(300);//set sleepmode timer to 5 minutes
 	}
+      else//if filesystem can not be mounted
+	{
+	  //keep SIM28 in sleepmode
+	  restart_tim3(60);//set sleepmode timer to 1 minute  
+	}
+      
     }
   
   return;
 }
 
-static void batteryCheck()
+//measure battery and supply voltages, save results in RAM
+static void voltageCheck()
 {
-  //if overrun is detected, clear OVR, EOSEQ, EOC, EOSMP flags
-  if(ADC1->ISR & (1<<4)) ADC1->ISR = (1<<4)|(1<<3)|(1<<2)|(1<<1);
-  
-  else if(ADC1->ISR & (1<<2))//if conversion is complete (without overrun)
+  if(ADC1->ISR & (1<<2))//if ADC conversion is complete
     {
       //if ADC_IN9 channel was converted (end of sequence), compute battery voltage
       if(ADC1->ISR & (1<<3)) LoggerInfo.BatteryVoltage = ( LoggerInfo.SupplyVoltage * ADC1->DR ) / 1365;// Vbat / 3 = Vdd / 2^12 * Vmeas       
       //if Vref channel was converted (sequence not over yet), compute MCU supply voltage
-      else LoggerInfo.SupplyVoltage = ( 330000 * *((unsigned short*) 0x1FFFF7BA) ) / ADC1->DR;// Vdd = 3.3V * VREFINT_CAL / VREFINT_DATA           
-      
-      //if measured supply voltage is valid and below 2.85V
-      if( (LoggerInfo.SupplyVoltage > 0) && (LoggerInfo.SupplyVoltage < 285000) )
-	{
-	  stopCurrentTrack();//if some track file was being written, add track and file termination
-	  
-	  __disable_irq();//disable interrupt handler entry
-	  NVIC_DisableIRQ(2);//disable RTC interrupt
-	  NVIC_DisableIRQ(7);//disable EXTI lines 4 through 15 interrupt
-	  NVIC_DisableIRQ(10);//disable DMA interrupt
-	  
-	  adxl_standby();//tell adxl345 to enter standby mode
-	  adxl_clear();//clear adxl345 interrupt lines
-	  
-	  sim28_sleep();//tell SIM28 to enter sleepmode
-	  MCUsleep();//at this point the processor should be stuck in sleep mode until the power supply is turned off    
-	}
-      
+      else LoggerInfo.SupplyVoltage = ( 330000 * *((unsigned short*) 0x1FFFF7BA) ) / ADC1->DR;// Vdd = 3.3V * VREFINT_CAL / VREFINT_DATA
+
       ADC1->ISR = (1<<3)|(1<<2)|(1<<1);//clear EOSEQ, EOC, EOSMP flags
+      ADC1->CR = (1<<2)|(1<<0);//start new ADC conversion
     }
-  
+
   return;
 }
 
+//------------------------------------------------------------------------------------
+
+//process a newly received 512 byte block of NMEA data
 static void processNMEA()
 {
   unsigned char* whereToStop; //used to find messageCount value
@@ -331,8 +356,8 @@ static void processNMEA()
 	  if(LoggerInfo.TrackName[0] == 0) startNewTrack();//if there is no current track, start a new one
 	  addTrackPoint();//add new trackpoint to GPXbuffer[]
 	  
-	  (LoggerInfo.RMCdata).dataStatus = 0;//set RMC dataStatus as invalid, so the message is not used again
-	  (LoggerInfo.GGAdata).dataStatus = 0;//set GGA dataStatus as invalid, so the message is not used again
+	  (LoggerInfo.RMCdata).dataStatus = 0;//set RMC dataStatus to invalid, so the message is not used again
+	  (LoggerInfo.GGAdata).dataStatus = 0;//set GGA dataStatus to invalid, so the message is not used again
 	}
       
       messageCount--;//one more NMEA message was processed
@@ -352,6 +377,7 @@ static void processNMEA()
   return;
 }
 
+//fill RMCdata structure in RAM from GPRMC message
 static void processGPRMC()
 {
   skipAfter(',');//move to UTC time field, read the value
@@ -389,6 +415,7 @@ static void processGPRMC()
   return;
 }
 
+//fill GGAdata structure in RAM from GPGGA message
 static void processGPGGA()
 {
   skipAfter(',');//move to UTC time field, read the value
@@ -427,6 +454,7 @@ static void processGPGGA()
   return;
 }
 
+//fill GSAdata structure in RAM from GPGSA message
 static void processGPGSA()
 {
   skipAfter(',');//move to mode 1 field, do nothing
@@ -459,473 +487,6 @@ static void processGPGSA()
   (LoggerInfo.GSAdata).vdop = readValue(100);
   
   skipAfter(0x0A);//skip to the next command
-  return;
-}
-
-static void startNewTrack()
-{
-  FRESULT result;//holds return value of some fatfs related function
-  
-  setDateTime();//fill FileName and TrackName arrays based on current date and time  
-  restart_tim2(240000);//set TIM2 to count for 4 minutes (if track will be stopped before TIM2 is done the track is discarded)
-  
-  result = f_stat((char*) LoggerInfo.FileName, &FILINFOinfo);//find if a file with target FileName[] already exists
-  if(result == FR_OK)//if target track file does exist
-    {
-      LoggerInfo.TrackFileOffset = FILINFOinfo.fsize - 7;//remember where in the file current track will be written
-      
-      //erase previous GPX file termination
-      if( f_open(&FILinfo, (char*) &LoggerInfo.FileName[0], FA_READ | FA_WRITE) == FR_OK )
-	{ 
-	  f_lseek(&FILinfo, FILINFOinfo.fsize - 7);//move read/write pointer back to where GPX file termination should be
-	  f_truncate(&FILinfo);//delete all data past current read/write pointer
-	  f_close(&FILinfo);
-	}
-    }
-  else if(result == FR_NO_FILE)//if target track file is not found
-    {
-      LoggerInfo.TrackFileOffset = 0;//set TrackFileOffset to 0, to indicate that there is only one track in the GPX file
-      
-      //append GPX file header; use current date for GPX name, in this format: YYYY-MM-DD (year-month-day)
-      appendGPXtext("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-      appendGPXtext("<gpx version=\"1.1\" creator=\"LocalTrack\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n");
-      appendGPXtext("<metadata>\n");
-      appendGPXtext("<name>20");
-      appendGPXtext((char*) LoggerInfo.FileName);
-      LoggerInfo.GPXsize = LoggerInfo.GPXsize - 4;
-      appendGPXtext("</name>\n");
-      appendGPXtext("</metadata>\n");      
-    }
-  
-  //append new track header
-  appendGPXtext("<trk>\n");
-  appendGPXtext("<name>");
-  appendGPXtext((char*) LoggerInfo.TrackName);
-  appendGPXtext("</name>\n");
-  appendGPXtext("<cmt>Battery Voltage: ");
-  appendGPXvalue(LoggerInfo.BatteryVoltage, 100000, 100000);
-  LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
-  appendGPXtext("V</cmt>\n");
-  appendGPXtext("<trkseg>\n");
-  
-  return;
-}
-
-static void stopCurrentTrack()
-{ 
-  if(LoggerInfo.TrackName[0])//if some track was being written to file
-    {
-      LoggerInfo.GPXsize = 0;//start writing data at the beginning of GPXbuffer[]
-      
-      //if current track is shorter than 4 minutes and ShortTrackFlag is not set
-      if( (TIM2->CR1 & (1<<0)) && !(LoggerInfo.ConfigFlags & (1<<0)) )
-	{
-	  //if there is only one track in GPX file, delete the whole file
-	  if(LoggerInfo.TrackFileOffset == 0) f_unlink((char*) &LoggerInfo.FileName);
-	  //if there are multiple tracks, delete only the current track
-	  else if( f_open(&FILinfo, (char*) &LoggerInfo.FileName[0], FA_READ | FA_WRITE) == FR_OK )
-	    { 
-	      f_lseek(&FILinfo, LoggerInfo.TrackFileOffset);//move read/write pointer back to where current track started
-	      f_truncate(&FILinfo);//remove current track data
-	      
-	      //put GPX file termination back in place
-	      appendGPXtext("</gpx>\n");	  
-	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
-	      f_close(&FILinfo);
-	    }
-	}
-      
-      else//if current track is at least 4 minutes long
-	{ 
-	  //save all the new processed data to a GPX file
-	  if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK)
-	    { 
-	      //append GPX track and file terminations
-	      appendGPXtext("</trkseg>\n");
-	      appendGPXtext("</trk>\n");
-	      appendGPXtext("</gpx>\n");
-	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
-	      f_close(&FILinfo);
-	    }
-	}
-      
-    }
-  
-  LoggerInfo.TrackName[0] = 0;//remember that there is no current track anymore  
-  return;
-}
-
-//append trackpoint information into GPXbuffer[]
-static void addTrackPoint()
-{ 
-  //add string in this form: <trkpt lat="-61.6317250" lon="132.2348600">
-  appendGPXtext("<trkpt lat=\"");
-  appendGPXvalue( (LoggerInfo.RMCdata).latitude,  10000000, 10000000 );
-  appendGPXtext("\" lon=\"");
-  appendGPXvalue( (LoggerInfo.RMCdata).longitude, 10000000, 10000000 );
-  appendGPXtext("\">\n");
-  
-  //add string in this form: <ele>146.125</ele>
-  appendGPXtext("  <ele>");
-  appendGPXvalue( (LoggerInfo.GGAdata).altitude, 1000, 1000 );
-  appendGPXtext("</ele>\n");
-  
-  //add string in this form: <time>2020-07-31T12:49:32.945Z</time>
-  appendGPXtext("  <time>20");
-  appendGPXvalue( (LoggerInfo.RMCdata).date % 100, 1, 10 );
-  appendGPXtext("-");
-  appendGPXvalue( ((LoggerInfo.RMCdata).date / 100) % 100, 1, 10 );
-  appendGPXtext("-");
-  appendGPXvalue( ((LoggerInfo.RMCdata).date / 10000) % 100, 1, 10 );
-  appendGPXtext("T");
-  appendGPXvalue( ((LoggerInfo.RMCdata).time / 10000000) % 100, 1, 10 );
-  appendGPXtext(":");
-  appendGPXvalue( ((LoggerInfo.RMCdata).time / 100000) % 100, 1, 10 );
-  appendGPXtext(":");
-  appendGPXvalue( (LoggerInfo.RMCdata).time % 100000, 1000, 10000 );
-  appendGPXtext("Z</time>\n");
-  
-  if(LoggerInfo.ConfigFlags & (1<<4))//if REPORT_SPEED command was used
-    {
-      //add string in this form: <speed>57.341</speed>
-      appendGPXtext("  <speed>");
-      appendGPXvalue( (LoggerInfo.RMCdata).speed, 1000, 1000 );
-      appendGPXtext("</speed>\n");
-    }
-  
-  if(LoggerInfo.ConfigFlags & (1<<5))//if REPORT_COURSE command was used
-    {
-      //add string in this form: <course>132.87</course>
-      appendGPXtext("  <course>");
-      appendGPXvalue( (LoggerInfo.RMCdata).course, 100, 100 );
-      appendGPXtext("</course>\n");
-    }
-  
-  if(LoggerInfo.ConfigFlags & (1<<6))//if REPORT_NUMSAT command was used
-    {
-      //add string in this form: <sat>12</sat>
-      appendGPXtext("  <sat>");
-      appendGPXvalue( (LoggerInfo.GGAdata).numSatUsed, 1, 1 );
-      appendGPXtext("</sat>\n");
-    }
-  
-  if(LoggerInfo.ConfigFlags & (1<<7))//if REPORT_FIXTYPE command was used
-    {
-      //add string in this form: <fix>2d</fix>, but only if fix is available
-      if( (LoggerInfo.GSAdata).fixType == 2 ) appendGPXtext("  <fix>2d</fix>\n");
-      if( (LoggerInfo.GSAdata).fixType == 3 ) appendGPXtext("  <fix>3d</fix>\n");
-    }
-  
-  //add string in this form: </trkpt>
-  appendGPXtext("</trkpt>\n");
-  
-  //if SIM28 reported speed above 5 km/h (1.389 m/s) restart 1 minute timer
-  if( ((LoggerInfo.RMCdata).speed) >= 1389 ) restart_tim3(60000);
-  
-  return;
-}
-
-//append specified text to the previous data in GPXbuffer[], increment GPXsize accordingly
-static void appendGPXtext(char* text)
-{
-  while(*text)//keep writing until end of string is detected
-    {
-      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
-      GPXbuffer[LoggerInfo.GPXsize] = *text;//copy character into GPXbuffer[]
-      
-      text++;//move to the next character in data string
-      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
-    }
-  
-  return;
-}
-
-//convert integer to a string and append it to the previous data in GPXbuffer[], increment GPXsize accordingly;
-//value will be divided by a specified divisor, in order to place a decimal point separator in the right place;
-//leading zero digits with significance bigger than skipLimit will be omitted, nonzero digits are never omitted;
-//divisor and skipLimit must be numbers that are a power of 10, from 10^0 to 10^9; skipLimit should not be less than divisor
-static void appendGPXvalue(int value, unsigned int divisor, unsigned int skipLimit)
-{ 
-  unsigned int  divideBy = 1000000000;//used to step through the digits in specified decimal value
-  unsigned char symbol = 0;//contains ASCII code for current digit
-  
-  if(value < 0)//if specified value is negative
-    {
-      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
-      GPXbuffer[LoggerInfo.GPXsize] = '-';//add minus sign at the start
-      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
-      
-      value = -value;//make the value positive
-    }
-  
-  //skip leading zeroes, but make sure not to go over skipLimit; eg. skipLimit = divisor * 10
-  //means leave 2 symbols before the dot, even if both of them are zeroes
-  while( ((value / divideBy) == 0) && (divideBy > skipLimit) ) divideBy = divideBy / 10;
-  
-  while(divideBy)//keep converting until all digits are processed
-    {
-      symbol = (value / divideBy) % 10 + 48;//find the next digit to add in the string
-      
-      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
-      GPXbuffer[LoggerInfo.GPXsize] = symbol;//add one more digit in the string
-      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
-      
-      //if last digit before the dot was just now processed, and there are still digits left to place after the dot
-      if((divideBy == divisor) && (divisor != 1))
-	{
-	  if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
-	  GPXbuffer[LoggerInfo.GPXsize] = '.';//add dot separator character
-	  LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
-	}
-      
-      divideBy = divideBy / 10;//move on to convert the next digit
-    }
-  
-  return;
-}
-
-//------------------------------------------------------------------------------------
-
-static void MCUsleep()
-{
-  ADC1->CR = (1<<4)|(1<<0);//stop current ADC1 conversion
-  while(ADC1->CR & (1<<4));//wait until ADC1 conversion is stopped
-  ADC1->CR = (1<<1)|(1<<0);//disable ADC1
-  while(ADC1->CR & (1<<0));//wait until ADC1 is completely disabled
-  ADC1->ISR = 0x9F;//clear all ADC1 flags
-  
-  //reset voltage measurements to zero, to avoid using old values after wakeup
-  LoggerInfo.SupplyVoltage = 0;
-  LoggerInfo.BatteryVoltage = 0;
-  
-  RCC->CR |= (1<<0);//enable HSI clock
-  while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
-  RCC->CFGR = 0;//use HSI as system clock
-  while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
-  RCC->CR &= ~(1<<16);//disable HSE clock
-  
-  while ( !(RTC->ISR & (1<<2)) );//wait until wakeup timer can be configured
-  RTC->WUTR = 10799;//make sure that MCU wakes up at least once every 3 hours
-  RTC->CR = (1<<14)|(1<<10)|(1<<2);//start wakeup timer, enable wakeup interrupt, use 1Hz clock
-  
-  __WFI();//MCU enters deep sleep mode (stop)
-  
-  RTC->CR &= ~(1<<10);//disable wakeup timer
-  RTC->ISR &= ~(1<<10);//clear wakeup timer flag  
-  
-  //MCU continues execution here after activity detection
-  RCC->CR |= (1<<19)|(1<<16);//enable HSE clock, clock security system
-  while( !(RCC->CR & (1<<17)) );//wait until HSE is ready
-  RCC->CFGR = (1<<0);//set HSE as system clock
-  while( !((RCC->CFGR & 0x0F) == 0b0101) );//wait until HSE is used as system clock
-  RCC->CR &= ~(1<<0);//disable HSI
-  
-  //enable ADC1 again
-  ADC1->CR = (1<<31);//start ADC1 calibration
-  while(ADC1->CR & (1<<31));//wait until calibration is complete
-  __DSB();//make sure all outstanding memory transfers are over
-  ADC1->CR = (1<<0);//enable ADC1
-  while( !(ADC1->ISR & (1<<0)) );//wait until ADC1 is ready
-  ADC1->CFGR1 = (1<<13)|(1<<2);//continuous conversion mode, keep old data on overrun, scan backwards
-  ADC1->SMPR = (1<<2)|(1<<1)|(1<<0);//use 239.5 ADC cycles of sample time (59.875us at PCLK = 8Mhz)
-  ADC->CCR = (1<<22);//enable reference voltage for ADC1
-  ADC1->CHSELR = (1<<17)|(1<<9);//enable Vref and ADC_IN9 channels for ADC1
-  ADC1->CR = (1<<2)|(1<<0);//start making conversions
-  
-  return;
-}
-
-//search through all GPX track files and make sure they all have proper GPX file termination
-static void verifyGPXfiles()
-{
-  FRESULT result;//holds return value of some fatfs related function
-  DIR DIRinfo;
-  
-  result = f_findfirst(&DIRinfo, &FILINFOinfo, "0:/", "*.GPX");//find if there are any existing tracks in flash memory  
-  while( (result == FR_OK) && FILINFOinfo.fname[0] )//keep searching until all tracks are verified
-    {
-      if( f_open(&FILinfo, &FILINFOinfo.fname[0], FA_READ | FA_WRITE) == FR_OK)//try to open the track file
-	{ 
-	  f_lseek(&FILinfo, FILINFOinfo.fsize - 7);//move read/write pointer back to where GPX file termination should be
-	  f_read(&FILinfo, (void*) &NMEAbuffer[0], 7, &temp);//read last 7 bytes from the file into NMEAbuffer[]
-	  
-	  LoggerInfo.NMEApointer = &NMEAbuffer[0];//move NMEApointer to the beginning of NMEAbuffer[]
-	  if( !checkKeyword("</gpx>") )//if "</gpx>" string was not found
-	    {
-	      //append GPX track and file terminations
-	      LoggerInfo.GPXsize = 0;
-	      appendGPXtext("</trkseg>\n");
-	      appendGPXtext("</trk>\n");
-	      appendGPXtext("</gpx>\n");
-	      
-	      f_lseek(&FILinfo, FILINFOinfo.fsize);//move read/write pointer to the end of file
-	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);//write GPX data to file
-	    }
-	  f_close(&FILinfo);
-	}
-      result = f_findnext(&DIRinfo, &FILINFOinfo);
-    }
-  f_closedir(&DIRinfo);
-  
-  return;
-}
-
-static void readConfigFile()
-{
-  unsigned char* whereToCheck = &NMEAbuffer[0];//used to count how many commands to process
-  unsigned char  messageCount = 0;//used to count how many commands to process
-  
-  //reset fix interval to 1000ms
-  LoggerInfo.FixInterval[8]  = '1';
-  LoggerInfo.FixInterval[9]  = '0';
-  LoggerInfo.FixInterval[10] = '0';
-  LoggerInfo.FixInterval[11] = '0';
-  LoggerInfo.FixInterval[12] = 0x00;
-  LoggerInfo.FixInterval[13] = 0x00;
-  
-  //reset UTC offset to 0 minutes, clear all config flags
-  LoggerInfo.UTCoffset = 0;
-  LoggerInfo.ConfigFlags = 0;
-  
-  //try to open config.txt and load the settings from there
-  if( f_open(&FILinfo, "0:/config.txt", FA_READ) == FR_OK )
-    { 
-      f_read(&FILinfo, (void*) &NMEAbuffer[0], 512, &temp);
-      f_close(&FILinfo);
-      NMEAbuffer[temp] = 0x0A;//force append a newline character at the end (in case user did not put it there)
-      
-      while(whereToCheck != &NMEAbuffer[temp + 1])//find how many messages are to be processed
-	{
-	  if(*whereToCheck == 0x0A) messageCount++;
-	  whereToCheck++;
-	}
-      
-      LoggerInfo.NMEApointer = &NMEAbuffer[0];//start interpreting commands from the start of NMEAbuffer[]      
-      while(messageCount)//keep processing commands until no more left
-	{
-	       if( checkKeyword("FIX_INTERVAL ") )      setFixInterval( readValue(1) );
-	  else if( checkKeyword("UTC_OFFSET +") )       LoggerInfo.UTCoffset =  readValue(1);
-	  else if( checkKeyword("UTC_OFFSET -") )       LoggerInfo.UTCoffset = -readValue(1);
-	  else if( checkKeyword("ALLOW_SHORT_TRACKS") ) LoggerInfo.ConfigFlags |= (1<<0);
-	  else if( checkKeyword("DISABLE_1PPS_LED") )   LoggerInfo.ConfigFlags |= (1<<1);
-	  else if( checkKeyword("ENTER_DFU_MODE") )     LoggerInfo.ConfigFlags |= (1<<2);
-	  else if( checkKeyword("REPORT_SPEED") )       LoggerInfo.ConfigFlags |= (1<<4);
-	  else if( checkKeyword("REPORT_COURSE") )      LoggerInfo.ConfigFlags |= (1<<5);
-	  else if( checkKeyword("REPORT_NUMSAT") )      LoggerInfo.ConfigFlags |= (1<<6);
-	  else if( checkKeyword("REPORT_FIXTYPE") )     LoggerInfo.ConfigFlags |= (1<<7);
-	  else if( checkKeyword("MASS_ERASE") )        {mass_erase(); NVIC_SystemReset();}	  
-	  
-	  
-	  skipAfter(0x0A);//stop if no more configuration commands are found
-	  messageCount--;//one more command was processed
-	}
-      
-      //make sure UTC offset is between -24 hours and +24 hours
-      if(LoggerInfo.UTCoffset >  1440) LoggerInfo.UTCoffset =  1440;
-      if(LoggerInfo.UTCoffset < -1440) LoggerInfo.UTCoffset = -1440;      
-    }
-  
-  return;
-}
-
-static void setFixInterval(unsigned int newInterval)
-{ 
-  unsigned short divideBy = 10000;
-  unsigned char i = 8;
-  
-  //make sure newInterval value is between 200 and 10000
-  if(newInterval < 200)   newInterval = 200;
-  if(newInterval > 10000) newInterval = 10000;
-  
-  //convert newInterval integer to ASCII string, have no zeroes in the prefix (eg. have "235" instead of "00235" )
-  while(divideBy)
-    {
-      LoggerInfo.FixInterval[i] = 48 + (newInterval / divideBy) % 10;
-      divideBy = divideBy / 10;
-      if(LoggerInfo.FixInterval[8] != 48) i++;
-    }
-  LoggerInfo.FixInterval[i] = 0x00;//append string terminator at the end
-    
-  return;
-}
-
-static void setDateTime()
-{
-  //start with local date equal to UTC date
-  unsigned char localYear  = ((LoggerInfo.RMCdata).date % 100);
-  unsigned char localMonth = ((LoggerInfo.RMCdata).date / 100) % 100;
-  unsigned char localDay   = ((LoggerInfo.RMCdata).date / 10000);
-  short localMinutes = 0;//used to store time of the day, in units of 1 minute
-  
-  //change last day number in february to 29 in case of a leap year
-  if( (localYear % 4) == 0 ) MonthToDays[1] = 29;
-  else                       MonthToDays[1] = 28;
-  
-  //calculate local time from UTC time (convert hours to minutes)
-  localMinutes = ((LoggerInfo.RMCdata).time / 10000000) * 60 + ((LoggerInfo.RMCdata).time / 100000) % 100 + LoggerInfo.UTCoffset;
-  
-  if(localMinutes > 1440)//if necessary, move date 1 day forward
-    {      
-      if(localDay < MonthToDays[localMonth - 1]) localDay++;//if there is no need to change month
-      else//if next day will be in a new month, switch to a new month
-	{ 
-	  if(localMonth < 12) localMonth++;//if there is no need to change year
-	  else//if next month will be in a new year, switch to a new year
-	    {
-	      localMonth = 1;
-	      localYear++;
-	    }
-	  
-	  localDay = 1;
-	}
-      
-      localMinutes = localMinutes - 1440;//take date change into account
-    }
-  
-  else if (localMinutes < 0)//if necessary, move date 1 day backward
-    {
-      if(localDay > 1) localDay--;//if there is no need to change month
-      else//if previous day will be in a previous month, switch to previous month
-	{	  
-	  if(localMonth > 1) localMonth--;//if there is no need to change year
-	  else//if previous month will be in a previous year, switch to previous year
-	    {
-	      localMonth = 12;
-	      localYear--;
-	    }
-	  
-	  localDay = MonthToDays[localMonth - 1];
-	}
-      
-      localMinutes = localMinutes + 1440;//take date change into account
-    }
-  
-  //write local year, month and day in FileName[]
-  LoggerInfo.FileName[0]  = (localYear / 10) + 48;
-  LoggerInfo.FileName[1]  = (localYear % 10) + 48;
-  LoggerInfo.FileName[2]  = '-';
-  LoggerInfo.FileName[3]  = (localMonth / 10) + 48;
-  LoggerInfo.FileName[4]  = (localMonth % 10) + 48;
-  LoggerInfo.FileName[5]  = '-';
-  LoggerInfo.FileName[6]  = (localDay / 10) + 48;
-  LoggerInfo.FileName[7]  = (localDay % 10) + 48;
-  LoggerInfo.FileName[8]  = '.';
-  LoggerInfo.FileName[9]  = 'G';
-  LoggerInfo.FileName[10] = 'P';
-  LoggerInfo.FileName[11] = 'X';
-  LoggerInfo.FileName[12] = 0;
-  
-  //write local hour, minute and second in TrackName[]
-  LoggerInfo.TrackName[0] = (localMinutes / 60) / 10 + 48;
-  LoggerInfo.TrackName[1] = (localMinutes / 60) % 10 + 48;
-  LoggerInfo.TrackName[2] = ':';
-  LoggerInfo.TrackName[3] = (localMinutes % 60) / 10 + 48;
-  LoggerInfo.TrackName[4] = (localMinutes % 60) % 10 + 48;
-  LoggerInfo.TrackName[5] = ':';
-  LoggerInfo.TrackName[6] = ((LoggerInfo.RMCdata).time / 10000) % 10 + 48;
-  LoggerInfo.TrackName[7] = ((LoggerInfo.RMCdata).time /  1000) % 10 + 48;
-  LoggerInfo.TrackName[8] = 0; 
-  
   return;
 }
 
@@ -1012,6 +573,487 @@ static void skipAfter(char symbol)
   return;
 }
 
+//------------------------------------------------------------------------------------
+
+//append new GPX track header to GPXbuffer[]; if needed, create a new GPX file header as well
+static void startNewTrack()
+{
+  FRESULT result;//holds return value of some fatfs related function
+  
+  setDateTime();//fill FileName[] and TrackName[] arrays based on current date and time  
+  restart_tim2(180000);//set TIM2 to count for 3 minutes (if track will be stopped before TIM2 is done, the track is discarded)
+  
+  restart_tim3(120);//reset sleepmode timer to 2 minutes
+  adxl_clear();//clear activity signal  
+  
+  result = f_stat((char*) LoggerInfo.FileName, &FILINFOinfo);//find if a file with target FileName[] already exists
+  if(result == FR_OK)//if target track file does exist
+    {
+      LoggerInfo.TrackFileOffset = FILINFOinfo.fsize - 7;//remember where in the file current track will be written
+      
+      //erase previous GPX file termination
+      if( f_open(&FILinfo, (char*) &LoggerInfo.FileName[0], FA_READ | FA_WRITE) == FR_OK )
+	{ 
+	  f_lseek(&FILinfo, FILINFOinfo.fsize - 7);//move read/write pointer back to where GPX file termination should be
+	  f_truncate(&FILinfo);//delete all data past current read/write pointer
+	  f_close(&FILinfo);
+	}
+    }
+  else if(result == FR_NO_FILE)//if target track file is not found
+    {
+      LoggerInfo.TrackFileOffset = 0;//set TrackFileOffset to 0, to indicate that there is only one track in the GPX file
+      
+      //append GPX file header; use current date for GPX name, in this format: YYYY-MM-DD (year-month-day)
+      appendGPXtext("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+      appendGPXtext("<gpx version=\"1.1\" creator=\"LocalTrack\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n");
+      appendGPXtext("<metadata>\n");
+      appendGPXtext("<name>20");
+      appendGPXtext((char*) LoggerInfo.FileName);
+      LoggerInfo.GPXsize = LoggerInfo.GPXsize - 4;
+      appendGPXtext("</name>\n");
+      appendGPXtext("</metadata>\n");      
+    }
+  
+  //append new track header
+  appendGPXtext("<trk>\n");
+  appendGPXtext("<name>");
+  appendGPXtext((char*) LoggerInfo.TrackName);
+  appendGPXtext("</name>\n");
+  appendGPXtext("<cmt>Battery Voltage: ");
+  appendGPXvalue(LoggerInfo.BatteryVoltage, 100000, 100000);
+  LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
+  appendGPXtext("V</cmt>\n");
+  appendGPXtext("<trkseg>\n");
+  
+  return;
+}
+
+//append GPX track termination to GPXbuffer[]; if last track was too short, delete it completely
+static void stopCurrentTrack()
+{ 
+  if(LoggerInfo.TrackName[0])//if some track was being written to file
+    {
+      LoggerInfo.GPXsize = 0;//start writing data at the beginning of GPXbuffer[]
+      
+      //if current track is shorter than 3 minutes and ShortTrackFlag is not set
+      if( (TIM2->CR1 & (1<<0)) && !(LoggerInfo.ConfigFlags & (1<<0)) )
+	{
+	  //if there is only one track in GPX file, delete the whole file
+	  if(LoggerInfo.TrackFileOffset == 0) f_unlink((char*) &LoggerInfo.FileName);
+	  //if there are multiple tracks, delete only the current track
+	  else if( f_open(&FILinfo, (char*) &LoggerInfo.FileName[0], FA_READ | FA_WRITE) == FR_OK )
+	    { 
+	      f_lseek(&FILinfo, LoggerInfo.TrackFileOffset);//move read/write pointer back to where current track started
+	      f_truncate(&FILinfo);//remove current track data
+	      
+	      //put GPX file termination back in place
+	      appendGPXtext("</gpx>\n");	  
+	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
+	      f_close(&FILinfo);
+	    }
+	}
+      
+      else//if current track is at least 3 minutes long
+	{ 
+	  //save all the new processed data to a GPX file
+	  if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK)
+	    { 
+	      //append GPX track and file terminations
+	      appendGPXtext("</trkseg>\n");
+	      appendGPXtext("</trk>\n");
+	      appendGPXtext("</gpx>\n");
+	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
+	      f_close(&FILinfo);
+	    }
+	}
+      
+    }
+  
+  LoggerInfo.TrackName[0] = 0;//remember that there is no current track anymore  
+  return;
+}
+
+//append trackpoint information into GPXbuffer[]
+static void addTrackPoint()
+{ 
+  //add string in this form: <trkpt lat="-61.6317250" lon="132.2348600">
+  appendGPXtext("<trkpt lat=\"");
+  appendGPXvalue( (LoggerInfo.RMCdata).latitude,  10000000, 10000000 );
+  appendGPXtext("\" lon=\"");
+  appendGPXvalue( (LoggerInfo.RMCdata).longitude, 10000000, 10000000 );
+  appendGPXtext("\">\n");
+  
+  //add string in this form: <ele>146.125</ele>
+  appendGPXtext("  <ele>");
+  appendGPXvalue( (LoggerInfo.GGAdata).altitude, 1000, 1000 );
+  appendGPXtext("</ele>\n");
+  
+  //add string in this form: <time>2020-07-31T12:49:32.945Z</time>
+  appendGPXtext("  <time>20");
+  appendGPXvalue( (LoggerInfo.RMCdata).date % 100, 1, 10 );
+  appendGPXtext("-");
+  appendGPXvalue( ((LoggerInfo.RMCdata).date / 100) % 100, 1, 10 );
+  appendGPXtext("-");
+  appendGPXvalue( ((LoggerInfo.RMCdata).date / 10000) % 100, 1, 10 );
+  appendGPXtext("T");
+  appendGPXvalue( ((LoggerInfo.RMCdata).time / 10000000) % 100, 1, 10 );
+  appendGPXtext(":");
+  appendGPXvalue( ((LoggerInfo.RMCdata).time / 100000) % 100, 1, 10 );
+  appendGPXtext(":");
+  appendGPXvalue( (LoggerInfo.RMCdata).time % 100000, 1000, 10000 );
+  appendGPXtext("Z</time>\n");
+  
+  if(LoggerInfo.ConfigFlags & (1<<4))//if REPORT_SPEED command was used
+    {
+      //add string in this form: <speed>57.341</speed>
+      appendGPXtext("  <speed>");
+      appendGPXvalue( (LoggerInfo.RMCdata).speed, 1000, 1000 );
+      appendGPXtext("</speed>\n");
+    }
+  
+  if(LoggerInfo.ConfigFlags & (1<<5))//if REPORT_COURSE command was used
+    {
+      //add string in this form: <course>132.87</course>
+      appendGPXtext("  <course>");
+      appendGPXvalue( (LoggerInfo.RMCdata).course, 100, 100 );
+      appendGPXtext("</course>\n");
+    }
+  
+  if(LoggerInfo.ConfigFlags & (1<<6))//if REPORT_NUMSAT command was used
+    {
+      //add string in this form: <sat>12</sat>
+      appendGPXtext("  <sat>");
+      appendGPXvalue( (LoggerInfo.GGAdata).numSatUsed, 1, 1 );
+      appendGPXtext("</sat>\n");
+    }
+  
+  if(LoggerInfo.ConfigFlags & (1<<7))//if REPORT_FIXTYPE command was used
+    {
+      //add string in this form: <fix>2d</fix>, but only if fix is available
+      if( (LoggerInfo.GSAdata).fixType == 2 ) appendGPXtext("  <fix>2d</fix>\n");
+      if( (LoggerInfo.GSAdata).fixType == 3 ) appendGPXtext("  <fix>3d</fix>\n");
+    }
+  
+  //add string in this form: </trkpt>
+  appendGPXtext("</trkpt>\n");
+  
+  //if SIM28 reported speed above 5 km/h (1.389 m/s) reset sleepmode timer to 2 minutes
+  if( ((LoggerInfo.RMCdata).speed) >= 1389 ) restart_tim3(120);
+  
+  return;
+}
+
+//append specified text to the previous data in GPXbuffer[], increment GPXsize accordingly
+static void appendGPXtext(char* text)
+{
+  while(*text)//keep writing until end of string is detected
+    {
+      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+      GPXbuffer[LoggerInfo.GPXsize] = *text;//copy character into GPXbuffer[]
+      
+      text++;//move to the next character in data string
+      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+    }
+  
+  return;
+}
+
+//convert integer to a string and append it to the previous data in GPXbuffer[], increment GPXsize accordingly;
+//value will be divided by a specified divisor, in order to place a decimal point separator in the right place;
+//leading zero digits with significance bigger than skipLimit will be omitted, nonzero digits are never omitted;
+//divisor and skipLimit must be numbers that are a power of 10, from 10^0 to 10^9; skipLimit should not be less than divisor
+static void appendGPXvalue(int value, unsigned int divisor, unsigned int skipLimit)
+{ 
+  unsigned int  divideBy = 1000000000;//used to step through the digits in specified decimal value
+  unsigned char symbol = 0;//contains ASCII code for current digit
+  
+  if(value < 0)//if specified value is negative
+    {
+      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+      GPXbuffer[LoggerInfo.GPXsize] = '-';//add minus sign at the start
+      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+      
+      value = -value;//make the value positive
+    }
+  
+  //skip leading zeroes, but make sure not to go over skipLimit; eg. skipLimit = divisor * 10
+  //means leave 2 symbols before the dot, even if both of them are zeroes
+  while( ((value / divideBy) == 0) && (divideBy > skipLimit) ) divideBy = divideBy / 10;
+  
+  while(divideBy)//keep converting until all digits are processed
+    {
+      symbol = (value / divideBy) % 10 + 48;//find the next digit to add in the string
+      
+      if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+      GPXbuffer[LoggerInfo.GPXsize] = symbol;//add one more digit in the string
+      LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+      
+      //if last digit before the dot was just now processed, and there are still digits left to place after the dot
+      if((divideBy == divisor) && (divisor != 1))
+	{
+	  if(LoggerInfo.GPXsize >= 1024) return;//do not write outside of GPXbuffer[]
+	  GPXbuffer[LoggerInfo.GPXsize] = '.';//add dot separator character
+	  LoggerInfo.GPXsize++;//one more byte was saved in GPXbuffer[]
+	}
+      
+      divideBy = divideBy / 10;//move on to convert the next digit
+    }
+  
+  return;
+}
+
+//------------------------------------------------------------------------------------
+
+//write configuration values/strings according to config.txt (or default settings)
+static void readConfigFile()
+{
+  unsigned char* whereToCheck = &NMEAbuffer[0];//used to count how many commands to process
+  unsigned char  messageCount = 0;//used to count how many commands to process
+  
+  //reset fix interval to 1000ms
+  LoggerInfo.FixInterval[8]  = '1';
+  LoggerInfo.FixInterval[9]  = '0';
+  LoggerInfo.FixInterval[10] = '0';
+  LoggerInfo.FixInterval[11] = '0';
+  LoggerInfo.FixInterval[12] = 0x00;
+  LoggerInfo.FixInterval[13] = 0x00;
+  
+  //reset UTC offset to 0 minutes, clear all config flags
+  LoggerInfo.UTCoffset = 0;
+  LoggerInfo.ConfigFlags = 0;
+  
+  //try to open config.txt and load the settings from there
+  if( f_open(&FILinfo, "0:/config.txt", FA_READ) == FR_OK )
+    { 
+      f_read(&FILinfo, (void*) &NMEAbuffer[0], 512, &temp);
+      f_close(&FILinfo);
+      NMEAbuffer[temp] = 0x0A;//force append a newline character at the end (in case user did not put it there)
+      
+      while(whereToCheck != &NMEAbuffer[temp + 1])//find how many messages are to be processed
+	{
+	  if(*whereToCheck == 0x0A) messageCount++;
+	  whereToCheck++;
+	}
+      
+      LoggerInfo.NMEApointer = &NMEAbuffer[0];//start interpreting commands from the start of NMEAbuffer[]      
+      while(messageCount)//keep processing commands until no more left
+	{
+	       if( checkKeyword("FIX_INTERVAL ") )      setFixInterval( readValue(1) );
+	  else if( checkKeyword("UTC_OFFSET +") )       LoggerInfo.UTCoffset =  readValue(1);
+	  else if( checkKeyword("UTC_OFFSET -") )       LoggerInfo.UTCoffset = -readValue(1);
+	  else if( checkKeyword("ALLOW_SHORT_TRACKS") ) LoggerInfo.ConfigFlags |= (1<<0);
+	  else if( checkKeyword("DISABLE_1PPS_LED") )   LoggerInfo.ConfigFlags |= (1<<1);
+	  else if( checkKeyword("ENTER_DFU_MODE") )     LoggerInfo.ConfigFlags |= (1<<2);
+	  else if( checkKeyword("REPORT_SPEED") )       LoggerInfo.ConfigFlags |= (1<<4);
+	  else if( checkKeyword("REPORT_COURSE") )      LoggerInfo.ConfigFlags |= (1<<5);
+	  else if( checkKeyword("REPORT_NUMSAT") )      LoggerInfo.ConfigFlags |= (1<<6);
+	  else if( checkKeyword("REPORT_FIXTYPE") )     LoggerInfo.ConfigFlags |= (1<<7);
+	  else if( checkKeyword("MASS_ERASE") )        {mass_erase(); NVIC_SystemReset();}	  
+	  
+	  
+	  skipAfter(0x0A);//stop if no more configuration commands are found
+	  messageCount--;//one more command was processed
+	}
+      
+      //make sure UTC offset is between -24 hours and +24 hours
+      if(LoggerInfo.UTCoffset >  1440) LoggerInfo.UTCoffset =  1440;
+      if(LoggerInfo.UTCoffset < -1440) LoggerInfo.UTCoffset = -1440;      
+    }
+  
+  return;
+}
+
+//sets time interval between position fixes
+static void setFixInterval(unsigned int newInterval)
+{ 
+  unsigned short divideBy = 10000;
+  unsigned char i = 8;
+  
+  //make sure newInterval value is between 200 and 10000
+  if(newInterval < 200)   newInterval = 200;
+  if(newInterval > 10000) newInterval = 10000;
+  
+  //convert newInterval integer to ASCII string, have no zeroes in the prefix (eg. have "235" instead of "00235" )
+  while(divideBy)
+    {
+      LoggerInfo.FixInterval[i] = 48 + (newInterval / divideBy) % 10;
+      divideBy = divideBy / 10;
+      if(LoggerInfo.FixInterval[8] != 48) i++;
+    }
+  LoggerInfo.FixInterval[i] = 0x00;//append string terminator at the end
+    
+  return;
+}
+
+//take current date and time, apply UTC offset to it, then fill FileName[] and TrackName[] based on the result
+static void setDateTime()
+{
+  //start with local date equal to UTC date
+  unsigned char localYear  = ((LoggerInfo.RMCdata).date % 100);
+  unsigned char localMonth = ((LoggerInfo.RMCdata).date / 100) % 100;
+  unsigned char localDay   = ((LoggerInfo.RMCdata).date / 10000);
+  short localMinutes = 0;//used to store time of the day, in units of 1 minute
+  
+  //change last day number in february to 29 in case of a leap year
+  if( (localYear % 4) == 0 ) MonthToDays[1] = 29;
+  else                       MonthToDays[1] = 28;
+  
+  //calculate local time from UTC time (convert hours to minutes)
+  localMinutes = ((LoggerInfo.RMCdata).time / 10000000) * 60 + ((LoggerInfo.RMCdata).time / 100000) % 100 + LoggerInfo.UTCoffset;
+  
+  if(localMinutes > 1440)//if necessary, move date 1 day forward
+    {      
+      if(localDay < MonthToDays[localMonth - 1]) localDay++;//if there is no need to change month
+      else//if next day will be in a new month, switch to a new month
+	{ 
+	  if(localMonth < 12) localMonth++;//if there is no need to change year
+	  else//if next month will be in a new year, switch to a new year
+	    {
+	      localMonth = 1;
+	      localYear++;
+	    }
+	  
+	  localDay = 1;
+	}
+      
+      localMinutes = localMinutes - 1440;//take date change into account
+    }
+  
+  else if (localMinutes < 0)//if necessary, move date 1 day backward
+    {
+      if(localDay > 1) localDay--;//if there is no need to change month
+      else//if previous day will be in a previous month, switch to previous month
+	{	  
+	  if(localMonth > 1) localMonth--;//if there is no need to change year
+	  else//if previous month will be in a previous year, switch to previous year
+	    {
+	      localMonth = 12;
+	      localYear--;
+	    }
+	  
+	  localDay = MonthToDays[localMonth - 1];
+	}
+      
+      localMinutes = localMinutes + 1440;//take date change into account
+    }
+  
+  //write local year, month and day in FileName[]
+  LoggerInfo.FileName[0]  = (localYear / 10) + 48;
+  LoggerInfo.FileName[1]  = (localYear % 10) + 48;
+  LoggerInfo.FileName[2]  = '-';
+  LoggerInfo.FileName[3]  = (localMonth / 10) + 48;
+  LoggerInfo.FileName[4]  = (localMonth % 10) + 48;
+  LoggerInfo.FileName[5]  = '-';
+  LoggerInfo.FileName[6]  = (localDay / 10) + 48;
+  LoggerInfo.FileName[7]  = (localDay % 10) + 48;
+  LoggerInfo.FileName[8]  = '.';
+  LoggerInfo.FileName[9]  = 'G';
+  LoggerInfo.FileName[10] = 'P';
+  LoggerInfo.FileName[11] = 'X';
+  LoggerInfo.FileName[12] = 0;
+  
+  //write local hour, minute and second in TrackName[]
+  LoggerInfo.TrackName[0] = (localMinutes / 60) / 10 + 48;
+  LoggerInfo.TrackName[1] = (localMinutes / 60) % 10 + 48;
+  LoggerInfo.TrackName[2] = ':';
+  LoggerInfo.TrackName[3] = (localMinutes % 60) / 10 + 48;
+  LoggerInfo.TrackName[4] = (localMinutes % 60) % 10 + 48;
+  LoggerInfo.TrackName[5] = ':';
+  LoggerInfo.TrackName[6] = ((LoggerInfo.RMCdata).time / 10000) % 10 + 48;
+  LoggerInfo.TrackName[7] = ((LoggerInfo.RMCdata).time /  1000) % 10 + 48;
+  LoggerInfo.TrackName[8] = 0; 
+  
+  return;
+}
+
+//------------------------------------------------------------------------------------
+
+//enter MCU sleep mode, wake up on interrupt
+static void MCUsleep()
+{
+  ADC1->CR = (1<<4)|(1<<0);//stop current ADC1 conversion
+  while(ADC1->CR & (1<<4));//wait until ADC1 conversion is stopped
+  ADC1->CR = (1<<1)|(1<<0);//disable ADC1
+  while(ADC1->CR & (1<<0));//wait until ADC1 is completely disabled
+  ADC1->ISR = 0x9F;//clear all ADC1 flags
+  
+  //reset voltage measurements to zero, to avoid using old values after wakeup
+  LoggerInfo.SupplyVoltage = 0;
+  LoggerInfo.BatteryVoltage = 0;
+  
+  RCC->CR |= (1<<0);//enable HSI clock
+  while( !(RCC->CR & (1<<1)) );//wait until HSI is ready
+  RCC->CFGR = 0;//use HSI as system clock
+  while( !((RCC->CFGR & 0x0F) == 0b0000) );//wait until HSI is used as system clock
+  RCC->CR &= ~(1<<16);//disable HSE clock
+  
+  while ( !(RTC->ISR & (1<<2)) );//wait until wakeup timer can be configured
+  RTC->WUTR = 10799;//make sure that MCU wakes up at least once every 3 hours
+  RTC->CR = (1<<14)|(1<<10)|(1<<2);//start wakeup timer, enable wakeup interrupt, use 1Hz clock
+  
+  __WFI();//MCU enters deep sleep mode (stop)
+  
+  RTC->CR &= ~(1<<10);//disable wakeup timer
+  RTC->ISR &= ~(1<<10);//clear wakeup timer flag  
+  
+  //MCU continues execution here after activity detection
+  RCC->CR |= (1<<19)|(1<<16);//enable HSE clock, clock security system
+  while( !(RCC->CR & (1<<17)) );//wait until HSE is ready
+  RCC->CFGR = (1<<0);//set HSE as system clock
+  while( !((RCC->CFGR & 0x0F) == 0b0101) );//wait until HSE is used as system clock
+  RCC->CR &= ~(1<<0);//disable HSI
+  
+  //enable ADC1 again
+  ADC1->CR = (1<<31);//start ADC1 calibration
+  while(ADC1->CR & (1<<31));//wait until calibration is complete
+  __DSB();//make sure all outstanding memory transfers are over
+  ADC1->CR = (1<<0);//enable ADC1
+  while( !(ADC1->ISR & (1<<0)) );//wait until ADC1 is ready
+  ADC1->CFGR1 = (1<<16)|(1<<2);//discontinuous conversion mode, keep old data on overrun, scan backwards
+  ADC1->SMPR = (1<<2)|(1<<1)|(1<<0);//use 239.5 ADC cycles of sample time (59.875us at PCLK = 8Mhz)
+  ADC->CCR = (1<<22);//enable reference voltage for ADC1
+  ADC1->CHSELR = (1<<17)|(1<<9);//enable Vref and ADC_IN9 channels for ADC1
+  ADC1->CR = (1<<2)|(1<<0);//start new ADC conversion
+  
+  return;
+}
+
+//search through available GPX files and append track and file terminations to all files that do not have it
+static void verifyGPXfiles()
+{
+  FRESULT result;//holds return value of some fatfs related function
+  DIR DIRinfo;
+  
+  result = f_findfirst(&DIRinfo, &FILINFOinfo, "0:/", "*.GPX");//find if there are any existing tracks in flash memory  
+  while( (result == FR_OK) && FILINFOinfo.fname[0] )//keep searching until all tracks are verified
+    {
+      if( f_open(&FILinfo, &FILINFOinfo.fname[0], FA_READ | FA_WRITE) == FR_OK)//try to open the track file
+	{ 
+	  f_lseek(&FILinfo, FILINFOinfo.fsize - 7);//move read/write pointer back to where GPX file termination should be
+	  f_read(&FILinfo, (void*) &NMEAbuffer[0], 7, &temp);//read last 7 bytes from the file into NMEAbuffer[]
+	  
+	  LoggerInfo.NMEApointer = &NMEAbuffer[0];//move NMEApointer to the beginning of NMEAbuffer[]
+	  if( !checkKeyword("</gpx>") )//if "</gpx>" string was not found
+	    {
+	      //append GPX track and file terminations
+	      LoggerInfo.GPXsize = 0;
+	      appendGPXtext("</trkseg>\n");
+	      appendGPXtext("</trk>\n");
+	      appendGPXtext("</gpx>\n");
+	      
+	      f_lseek(&FILinfo, FILINFOinfo.fsize);//move read/write pointer to the end of file
+	      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);//write GPX data to file
+	    }
+	  f_close(&FILinfo);
+	}
+      result = f_findnext(&DIRinfo, &FILINFOinfo);
+    }
+  f_closedir(&DIRinfo);
+  
+  return;
+}
+
+//transfer control over MCU to factory-programmed bootloader (for firmware updates)
 static void enterBootloader()
 {
   //set function pointer to a value specified in the vector table of System Memory

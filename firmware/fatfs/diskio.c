@@ -425,7 +425,7 @@ void dma_handler()
 
 void garbage_collect()
 {
-  //if there was 600ms without a single read or write command received, start erasing old invalid EB's
+  //if there was 100ms without a single read or write command received, start erasing old invalid EB's
   if( !(TIM7->CR1 & (1<<0)) )
     {
       prevent_poweroff();//prevent poweroff during garbage_collect()
@@ -661,7 +661,7 @@ static void erase_EB(unsigned short EBindex)
   
   if(EBindex  > 1023) return;//if invalid EBI is specified, do nothing
   PageAddress = EBindex * 64;//convert EBI into Physical Page Address
-
+  
   //make sure that a new command can be accepted
   wait_notbusy();
   write_enable();
@@ -673,7 +673,7 @@ static void erase_EB(unsigned short EBindex)
   spi_transfer( PageAddress >> 0 );//send Physical Page Address
   while(SPI1->SR & (1<<7));//wait until SPI1 is not busy
   CS_HIGH;//pull CS pin high
-
+  
   DiskInfo.LastErasedEB = EBindex;//remember index of the last EB that was erased
   
   return;
@@ -875,13 +875,13 @@ static unsigned char spi_transfer(unsigned int txdata)
   return (unsigned char) SPI1->DR;
 }
 
-//start the TIM7 timer, run for specified amount of milliseconds (max argument = 819)
+//start the TIM7 timer, run for specified amount of milliseconds (max argument = 8192)
 static void restart_tim7(unsigned short time)
 {
   //TIM7 configuration: ARR is buffered, one pulse mode, only overflow generates interrupt, start upcounting
   TIM7->CR1 = (1<<7)|(1<<3);//disable TIM7 (in case it was running)
-  TIM7->PSC = 99;//TIM7 prescaler = 100
-  TIM7->ARR = time * 80 - 1;//run for specified amount of milliseconds
+  TIM7->PSC = 999;//TIM7 prescaler = 1000
+  TIM7->ARR = time * 8 - 1;//run for specified amount of milliseconds
   TIM7->EGR = (1<<0);//generate update event
   TIM7->SR = 0;//clear overflow flag
   TIM7->CR1 = (1<<7)|(1<<3)|(1<<0);//ARR is buffered, one pulse mode, start upcounting

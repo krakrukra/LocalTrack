@@ -142,7 +142,7 @@ void usb_handler()
 	  processMSDtransaction();
 	  break;
 	  
-	  //add case 1:, case 2:, etc, if it is necessary to handle transactions for other endpoints as well ( and if they have to be handled here and not in main() )
+	  //add case 1:, case 2:, etc, if it is necessary to handle transactions for other endpoints as well
 	  
 	default:
 	  *( (unsigned int*) (USB_BaseAddr + 4*(USB->ISTR & 0x0F)) ) &= 0x070F;//clear CTR_RX, CTR_TX flags in EPnR, where n is number of endpoint specified in ISTR

@@ -26,7 +26,7 @@ the corresponding configuration value is used.
 * "FIX_INTERVAL **n**"   --- sets fix interval in milliseconds  
 * "UTC_OFFSET +**n**"   --- sets positive offset of local time relative to UTC time  
 * "UTC_OFFSET -**n**"   --- sets negative offset of local time relative to UTC time  
-* "ALLOW_SHORT_TRACKS"   --- save all tracks, even if shorter than 4 minutes  
+* "ALLOW_SHORT_TRACKS"   --- save all tracks, even if shorter than 3 minutes  
 * "DISABLE_1PPS_LED"   --- prevents blue status LED from blinking every second 
 * "ENTER_DFU_MODE"   --- enter USB DFU mode next time device is plugged in  
 * "REPORT_SPEED"   --- add speed info (in meters/sec) to each trackpoint  
@@ -48,7 +48,7 @@ from 0 to 1440, default value is 0. Local time is used in track and file names.
 For example, "UTC_OFFSET +180" command will set local timezone to UTC+3.  
   
 3. "ALLOW_SHORT_TRACKS" command makes the device save all valid tracks, while by  
-default only tracks of 4 minutes or more are kept to prevent spam. This command  
+default only tracks of 3 minutes or more are kept to prevent spam. This command  
 is intended for debugging / testing and it is not recommended in normal use.  
   
 4. "DISABLE_1PPS_LED" command disables blue status LED, which normally blinks  

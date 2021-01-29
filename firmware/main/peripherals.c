@@ -21,7 +21,7 @@ void adxl_init()
   while( !(I2C1->ISR & (1<<0)) );
   I2C1->TXDR = 180;//set inactivity time of 180 seconds
   while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b01110111;//dc operation, all axes enabled (both for ACT and INACT)
+  I2C1->TXDR = 0b01110000;//dc operation, all axes enabled for ACT, INACT is disabled
   while( !(I2C1->ISR & (1<<0)) );
   I2C1->CR2 = (1<<14);//send STOP
   
@@ -49,14 +49,14 @@ void adxl_init()
   I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
   I2C1->TXDR = 0x2E;//register address 0x2E
   while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00011000;//enable activity, inactivity interrupts
+  I2C1->TXDR = 0b00010000;//enable only activity interrupt
   while( !(I2C1->ISR & (1<<0)) );
   I2C1->CR2 = (1<<14);//send STOP
   
   I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
   I2C1->TXDR = 0x2D;//register address 0x2D
   while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00101000;//use link mode, start measurements
+  I2C1->TXDR = 0b00001000;//no link mode, start measurements
   while( !(I2C1->ISR & (1<<0)) );
   I2C1->CR2 = (1<<14);//send STOP
   
@@ -262,14 +262,14 @@ void restart_tim2(unsigned int time)
   return;
 }
 
-//run TIM3 for a specified number of milliseconds
+//run TIM3 for the specified time (in seconds, max argument is 327)
 void restart_tim3(unsigned short time)
 {
   if(time == 0) return;//do nothing if 0ms time was specified
   
   TIM3->CR1 = (1<<7)|(1<<3);//disable TIM3 (in case it was running)
-  TIM3->PSC = 999;//TIM3 prescaler = 1000
-  TIM3->ARR = time * 8 - 1;//set TIM3 reload value
+  TIM3->PSC = 39999;//TIM3 prescaler = 40000
+  TIM3->ARR = time * 200 - 1;//set TIM3 reload value
   TIM3->EGR = (1<<0);//generate update event
   TIM3->SR = 0;//clear overflow flag
   TIM3->CR1 = (1<<7)|(1<<3)|(1<<0);//ARR is buffered, one pulse mode, start upcounting
