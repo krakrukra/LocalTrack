@@ -18,8 +18,8 @@ command keyword. These commands have **n** character shown here, which
 should be replaced with an actual number in config.txt; The command  
 and it's argument must be separated by exactly one space character.  
   
-4. If some command is not present in config.txt default setting for  
-the corresponding configuration value is used.  
+4. If some command is not present in config.txt default value for  
+the corresponding configuration setting is used.  
   
 ### Below is a complete list of all configuration commands:  
   

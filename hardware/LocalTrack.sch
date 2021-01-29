@@ -467,14 +467,14 @@ $EndComp
 $Comp
 L LocalTrack:ST-LINK_V2 CON1
 U 1 1 5C7DD649
-P 900 2700
-F 0 "CON1" H 900 2350 50  0000 C CNN
-F 1 "ST-LINK_V2" H 900 2250 50  0000 C CNN
-F 2 "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical" V 150 2750 50  0001 C CNN
-F 3 "https://www.aliexpress.com/item/32596261414.html?spm=a2g0s.9042311.0.0.27424c4dZ8Ol8n" H 1100 2700 50  0001 C CNN
-F 4 "~" H -100 650 50  0001 C CNN "Manufacturer"
-F 5 "~" H -100 650 50  0001 C CNN "Short Description"
-	1    900  2700
+P 900 2800
+F 0 "CON1" H 900 2450 50  0000 C CNN
+F 1 "ST-LINK_V2" H 900 2350 50  0000 C CNN
+F 2 "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical" V 150 2850 50  0001 C CNN
+F 3 "https://www.aliexpress.com/item/32596261414.html?spm=a2g0s.9042311.0.0.27424c4dZ8Ol8n" H 1100 2800 50  0001 C CNN
+F 4 "~" H -100 750 50  0001 C CNN "Manufacturer"
+F 5 "~" H -100 750 50  0001 C CNN "Short Description"
+	1    900  2800
 	1    0    0    1   
 $EndComp
 $Comp
@@ -545,14 +545,14 @@ $EndComp
 $Comp
 L Device:C C1
 U 1 1 5C7FB68B
-P 1550 2600
-F 0 "C1" V 1800 2600 50  0000 C CNN
-F 1 "10uF" V 1700 2600 50  0000 C CNN
-F 2 "Capacitor_SMD:C_0805_2012Metric" H 1588 2450 50  0001 C CNN
-F 3 "https://product.tdk.com/info/en/catalog/datasheets/mlcc_commercial_general_en.pdf" H 1550 2600 50  0001 C CNN
-F 4 "TDK" H 50  300 50  0001 C CNN "Manufacturer"
-F 5 "X5R 10% 16V   eg. C2012X5R1C106K" H 50  300 50  0001 C CNN "Short Description"
-	1    1550 2600
+P 1550 2700
+F 0 "C1" V 1800 2700 50  0000 C CNN
+F 1 "10uF" V 1700 2700 50  0000 C CNN
+F 2 "Capacitor_SMD:C_0805_2012Metric" H 1588 2550 50  0001 C CNN
+F 3 "https://product.tdk.com/info/en/catalog/datasheets/mlcc_commercial_general_en.pdf" H 1550 2700 50  0001 C CNN
+F 4 "TDK" H 50  400 50  0001 C CNN "Manufacturer"
+F 5 "X5R 10% 16V   eg. C2012X5R1C106K" H 50  400 50  0001 C CNN "Short Description"
+	1    1550 2700
 	0    -1   -1   0   
 $EndComp
 Wire Wire Line
@@ -564,12 +564,12 @@ Wire Wire Line
 $Comp
 L power:GND #PWR0115
 U 1 1 5C80FA26
-P 1150 2700
-F 0 "#PWR0115" H 1150 2450 50  0001 C CNN
-F 1 "GND" V 1155 2572 50  0000 R CNN
-F 2 "" H 1150 2700 50  0001 C CNN
-F 3 "" H 1150 2700 50  0001 C CNN
-	1    1150 2700
+P 1150 2800
+F 0 "#PWR0115" H 1150 2550 50  0001 C CNN
+F 1 "GND" V 1155 2672 50  0000 R CNN
+F 2 "" H 1150 2800 50  0001 C CNN
+F 3 "" H 1150 2800 50  0001 C CNN
+	1    1150 2800
 	0    -1   -1   0   
 $EndComp
 $Comp
@@ -733,9 +733,9 @@ Wire Wire Line
 	5350 6500 5200 6500
 Wire Wire Line
 	5650 6800 5200 6800
-Text GLabel 1700 2800 0    50   Input ~ 0
+Text GLabel 1400 2900 2    50   Input ~ 0
 swdio
-Text GLabel 1400 2900 0    50   Input ~ 0
+Text GLabel 1700 3000 2    50   Input ~ 0
 swclk
 $Comp
 L Device:R R7
@@ -964,60 +964,60 @@ Wire Wire Line
 Connection ~ 7300 5500
 Text GLabel 3900 4500 0    50   Input ~ 0
 boot0
-Text GLabel 2200 2500 0    50   Input ~ 0
+Text GLabel 2200 2600 0    50   Input ~ 0
 boot0
 $Comp
 L Device:R R4
 U 1 1 5E6CF474
-P 2550 2700
-F 0 "R4" H 2480 2746 50  0000 R CNN
-F 1 "10k" H 2480 2655 50  0000 R CNN
-F 2 "Resistor_SMD:R_0603_1608Metric" V 2480 2700 50  0001 C CNN
-F 3 "https://datasheet.lcsc.com/szlcsc/1811151223_LIZ-Elec-CR0603JA0102G_C101253.pdf" H 2550 2700 50  0001 C CNN
-F 4 "LIZ Electronics" H 1100 -350 50  0001 C CNN "Manufacturer"
-F 5 "5% 50V  eg. CR0603JA0103G" H 1100 -350 50  0001 C CNN "Short Description"
-	1    2550 2700
+P 2550 2800
+F 0 "R4" H 2480 2846 50  0000 R CNN
+F 1 "10k" H 2480 2755 50  0000 R CNN
+F 2 "Resistor_SMD:R_0603_1608Metric" V 2480 2800 50  0001 C CNN
+F 3 "https://datasheet.lcsc.com/szlcsc/1811151223_LIZ-Elec-CR0603JA0102G_C101253.pdf" H 2550 2800 50  0001 C CNN
+F 4 "LIZ Electronics" H 1100 -250 50  0001 C CNN "Manufacturer"
+F 5 "5% 50V  eg. CR0603JA0103G" H 1100 -250 50  0001 C CNN "Short Description"
+	1    2550 2800
 	-1   0    0    -1  
 $EndComp
 $Comp
 L Device:C C9
 U 1 1 5E6CF5D3
-P 2300 2700
-F 0 "C9" H 2415 2746 50  0000 L CNN
-F 1 "100nF" H 2415 2655 50  0000 L CNN
-F 2 "Capacitor_SMD:C_0603_1608Metric" H 2338 2550 50  0001 C CNN
-F 3 "https://product.tdk.com/info/en/catalog/datasheets/mlcc_commercial_general_en.pdf" H 2300 2700 50  0001 C CNN
-F 4 "TDK" H 1150 -350 50  0001 C CNN "Manufacturer"
-F 5 "X7R 10% 50V   eg. C1608X7R1H104K" H 1150 -350 50  0001 C CNN "Short Description"
-	1    2300 2700
+P 2300 2800
+F 0 "C9" H 2415 2846 50  0000 L CNN
+F 1 "100nF" H 2415 2755 50  0000 L CNN
+F 2 "Capacitor_SMD:C_0603_1608Metric" H 2338 2650 50  0001 C CNN
+F 3 "https://product.tdk.com/info/en/catalog/datasheets/mlcc_commercial_general_en.pdf" H 2300 2800 50  0001 C CNN
+F 4 "TDK" H 1150 -250 50  0001 C CNN "Manufacturer"
+F 5 "X7R 10% 50V   eg. C1608X7R1H104K" H 1150 -250 50  0001 C CNN "Short Description"
+	1    2300 2800
 	-1   0    0    -1  
 $EndComp
 $Comp
 L power:GND #PWR0101
 U 1 1 5E6DBBFA
-P 2300 2900
-F 0 "#PWR0101" H 2300 2650 50  0001 C CNN
-F 1 "GND" H 2300 2750 50  0000 C CNN
-F 2 "" H 2300 2900 50  0001 C CNN
-F 3 "" H 2300 2900 50  0001 C CNN
-	1    2300 2900
+P 2300 3000
+F 0 "#PWR0101" H 2300 2750 50  0001 C CNN
+F 1 "GND" H 2300 2850 50  0000 C CNN
+F 2 "" H 2300 3000 50  0001 C CNN
+F 3 "" H 2300 3000 50  0001 C CNN
+	1    2300 3000
 	1    0    0    -1  
 $EndComp
 $Comp
 L power:GND #PWR0117
 U 1 1 5E6DBC5D
-P 2550 2900
-F 0 "#PWR0117" H 2550 2650 50  0001 C CNN
-F 1 "GND" H 2550 2750 50  0000 C CNN
-F 2 "" H 2550 2900 50  0001 C CNN
-F 3 "" H 2550 2900 50  0001 C CNN
-	1    2550 2900
+P 2550 3000
+F 0 "#PWR0117" H 2550 2750 50  0001 C CNN
+F 1 "GND" H 2550 2850 50  0000 C CNN
+F 2 "" H 2550 3000 50  0001 C CNN
+F 3 "" H 2550 3000 50  0001 C CNN
+	1    2550 3000
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	2550 2900 2550 2850
+	2550 3000 2550 2950
 Wire Wire Line
-	2300 2850 2300 2900
+	2300 2950 2300 3000
 $Comp
 L Switch:SW_SPST SW1
 U 1 1 5E750CE5
@@ -1264,7 +1264,7 @@ Text GLabel 5250 6200 2    50   Input ~ 0
 chg1
 Text GLabel 5500 6300 2    50   Input ~ 0
 chg2
-Text GLabel 1350 2600 0    50   Input ~ 0
+Text GLabel 1350 2700 0    50   Input ~ 0
 3.3V
 Wire Wire Line
 	4500 2200 4450 2200
@@ -1471,36 +1471,10 @@ NoConn ~ 1800 1400
 NoConn ~ 1700 1400
 Wire Wire Line
 	1900 2050 1900 2000
-$Comp
-L LocalTrack:IP4220CZ6 U8
-U 1 1 5F7FE1E4
-P 1900 3900
-F 0 "U8" H 1550 3950 60  0000 R CNN
-F 1 "IP4220CZ6" H 1550 3850 60  0000 R CNN
-F 2 "Package_SO:TSOP-6_1.65x3.05mm_P0.95mm" H 1900 3800 60  0001 C CNN
-F 3 "https://assets.nexperia.com/documents/data-sheet/IP4220CZ6.pdf" H 1900 3800 60  0001 C CNN
-F 4 "Nexperia" H -350 1300 50  0001 C CNN "Manufacturer"
-F 5 "ESD protection diode for USB" H -350 1300 50  0001 C CNN "Short Description"
-	1    1900 3900
-	-1   0    0    -1  
-$EndComp
 Wire Wire Line
-	1150 2700 1100 2700
+	1150 2800 1100 2800
 Wire Wire Line
-	2550 2500 2550 2550
-$Comp
-L power:GND #PWR0134
-U 1 1 5F87D4FC
-P 1900 4250
-F 0 "#PWR0134" H 1900 4000 50  0001 C CNN
-F 1 "GND" H 1900 4100 50  0000 C CNN
-F 2 "" H 1900 4250 50  0001 C CNN
-F 3 "" H 1900 4250 50  0001 C CNN
-	1    1900 4250
-	1    0    0    -1  
-$EndComp
-Wire Wire Line
-	1900 4250 1900 4200
+	2550 2600 2550 2650
 Wire Wire Line
 	7700 2000 7500 2000
 Wire Wire Line
@@ -1580,34 +1554,29 @@ Wire Wire Line
 Wire Wire Line
 	1250 1050 2100 1050
 Wire Wire Line
-	1700 2900 1700 3600
+	1100 3000 1700 3000
 Wire Wire Line
-	1100 2900 1700 2900
-Wire Wire Line
-	1800 2800 1800 3600
-Wire Wire Line
-	1100 2800 1800 2800
+	1100 2900 1400 2900
 $Comp
 L power:GND #PWR0116
 U 1 1 5FA41060
-P 1750 2600
-F 0 "#PWR0116" H 1750 2350 50  0001 C CNN
-F 1 "GND" V 1650 2550 50  0000 C CNN
-F 2 "" H 1750 2600 50  0001 C CNN
-F 3 "" H 1750 2600 50  0001 C CNN
-	1    1750 2600
+P 1750 2700
+F 0 "#PWR0116" H 1750 2450 50  0001 C CNN
+F 1 "GND" V 1650 2650 50  0000 C CNN
+F 2 "" H 1750 2700 50  0001 C CNN
+F 3 "" H 1750 2700 50  0001 C CNN
+	1    1750 2700
 	0    -1   -1   0   
 $EndComp
 Wire Wire Line
-	1750 2600 1700 2600
+	1750 2700 1700 2700
 Wire Wire Line
-	1100 2600 1400 2600
+	1100 2700 1400 2700
 Wire Wire Line
-	2300 2550 2300 2500
-Connection ~ 2300 2500
+	2300 2650 2300 2600
+Connection ~ 2300 2600
 Wire Wire Line
-	2300 2500 2550 2500
-NoConn ~ 2100 3600
+	2300 2600 2550 2600
 $Comp
 L power:GND #PWR0136
 U 1 1 5FAE3521
@@ -1747,17 +1716,6 @@ F 5 "X7R 10% 50V   eg. C1608X7R1H104K" H -300 350 50  0001 C CNN "Short Descript
 	1    3450 4300
 	0    1    1    0   
 $EndComp
-Wire Wire Line
-	1900 2500 2300 2500
-Wire Wire Line
-	2000 3550 2000 3600
-Text GLabel 2000 3550 1    50   Input ~ 0
-3.3V
-Wire Wire Line
-	1100 2500 1900 2500
-Wire Wire Line
-	1900 2500 1900 3600
-Connection ~ 1900 2500
 Connection ~ 8800 2000
 Wire Wire Line
 	8800 2000 8850 2000
@@ -1833,4 +1791,6 @@ Wire Wire Line
 	6400 1050 6900 1050
 Text GLabel 5650 6100 2    50   Input ~ 0
 mosi
+Wire Wire Line
+	1100 2600 2300 2600
 $EndSCHEMATC
