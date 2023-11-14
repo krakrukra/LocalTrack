@@ -37,7 +37,7 @@ Uses integrated full-speed (12Mbit/s) USB2.0 peripheral, with
 96MiB of available on-board flash memory for data storage;  
 measured speeds for MSD access: read 800-850 KiB/s, write 700-750 KiB/s  
   
-Hardware programmer device used in this project is [ST-Link V2](https://www.aliexpress.com/item/32792925130.html?spm=2114.12010615.8148356.5.4a1c43eddntSjr)  
+Hardware programmer device used in this project is [ST-Link V2](https://www.aliexpress.com/item/1823628996.html)  
   
 SIM28 may come in several variants which have different USART speeds by default.  
 Firmare here expects 9600 baudrate version. If you have different module version  

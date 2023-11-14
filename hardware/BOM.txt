@@ -35,37 +35,37 @@ ADXL345BCCZ MEMS accelerometer --- 1pcs
 5x1 male pin header, vertical, 2.54mm pitch --- 1pcs
 
 noname? horizontal micro USB connector --- 1pcs
-    https://www.aliexpress.com/item/32765504799.html?spm=a2g0s.9042311.0.0.27424c4d25ZRpn
+    https://www.aliexpress.com/item/32765504799.html
 
 8.4mm diameter, 3mm length (without head) rubber plug --- 1pcs
-    https://www.aliexpress.com/item/32974255931.html?spm=a2g0s.9042311.0.0.27424c4dMrhNHr
+    https://www.aliexpress.com/item/32974255931.html
 
 KCD1-11 rocker switch --- 1pcs
     I recommend to have a waterproof cover as provided via link below
-    https://www.aliexpress.com/item/32629402383.html?spm=2114.12010615.8148356.1.42cc4956SZfa4w
+    https://aliexpress.com/item/1005001835611654.html
 
 EHAO 3.7V 3000mAh li-po battery 103565 --- 1pcs
-    https://www.aliexpress.com/item/32879938149.html?spm=2114.12010615.8148356.1.24ac47076SXkWI
+    https://www.aliexpress.com/item/32879938149.html
 
 cyllindrical neodymium magnet 20mm diameter, 3mm height --- 6pcs
     these are glued on to removable lid, battery is then glued on top of that
-    https://www.aliexpress.com/item/1005001531120300.html?spm=2114.12010615.8148356.1.3cd2124djIm2U7
+    https://www.aliexpress.com/item/1005001531120300.html
 
 KH-F20 plastic enclosure (search aliexpress for 85x58x33mm enclosure), no mounting ears, nontransparent lid --- 1pcs
-    https://www.aliexpress.com/item/32894036224.html?spm=2114.12010615.8148356.1.1ebabbe00pWpPx
+    https://www.aliexpress.com/item/32894036224.html
 
 M3 countersunk head screw, 14mm length (without head) --- 4 pcs
     these should be included together with KH-F20 enclosure from the seller
 
 M3 screw, 4mm length (without head) --- 4pcs
-    https://www.aliexpress.com/item/32599502547.html?spm=2114.12010615.8148356.3.70285928tJKceJ
+    https://www.aliexpress.com/item/32599502547.html
 
 ---------------------------------------------------------------------------------------------------
 
 List of Accessories:
 
 charging micro USB cable (1A or more) with extra long 8mm plug --- 1pcs
-    https://www.aliexpress.com/item/4000791946144.html?spm=a2g0s.9042311.0.0.146f4c4dBIaPAg
+    https://www.aliexpress.com/item/32898415553.html
 
 USB charger with detachable cable, output current of 1A or more --- 1pcs
-    https://www.aliexpress.com/item/32902054558.html?spm=2114.12010615.8148356.1.7c4955c3AbZBqW
+    https://aliexpress.com/item/1005002034160981.html
