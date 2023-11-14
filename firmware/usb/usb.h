@@ -143,8 +143,8 @@ typedef struct
 {
   ConfigurationDescriptor_TypeDef ConfigurationDescriptor_1;
   InterfaceDescriptor_TypeDef InterfaceDescriptor_0;//MSD interface
-  EndpointDescriptor_TypeDef EndpointDescriptor_2_OUT;//MSD_OUT endpoint
-  EndpointDescriptor_TypeDef EndpointDescriptor_3_IN;//MSD_IN endpoint
+  EndpointDescriptor_TypeDef EndpointDescriptor_1_OUT;//MSD_OUT endpoint
+  EndpointDescriptor_TypeDef EndpointDescriptor_2_IN;//MSD_IN endpoint
 } __attribute__(( packed )) GetConfigResponse_TypeDef;
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -229,7 +229,7 @@ typedef enum
     READY,//waiting for host to send CBW
     MSD_OUT,//data is being sent from host to device
     MSD_IN,//data is being sent from device to host    
-    STATUS,//CSW is being sent form device to host
+    STATUS //CSW is being sent form device to host
   } MSDstage_TypeDef;
 
 //this structure contains all necessary information for handling MSD transfers
@@ -239,6 +239,7 @@ typedef struct
   CSW_TypeDef CSW;//CSW corresponding to current CBW
   unsigned char ActiveBuffer;//0 = first 512 bytes of MSDbuffer[] are currently used by USB, 1 = last 512 bytes
   unsigned char TargetFlag;//0 = DataPointer points to MCU internal memory address, 1 = points to external flash memory
+  unsigned char EjectFlag;//0 = external flash memory considered to be available, 1 = memory considered to be ejected
   MSDstage_TypeDef MSDstage;//stage of MSD transfer
   unsigned int DataPointer;//byte address in RAM where to continue reading/writing at next MSD transaction
   unsigned int BytesLeft;//number of bytes yet to be transmitted in a given MSD transfer

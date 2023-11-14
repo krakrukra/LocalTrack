@@ -12,7 +12,7 @@ static DeviceDescriptor_TypeDef DeviceDescriptor __attribute__(( aligned(2), sec
   .bMaxPacketSize0    = MAXPACKET_0,//max packet size for EP0 (default = 64 bytes)
   .idVendor           = 0x0951,//Kingston
   .idProduct          = 0x1603,//DataTraveler
-  .bcdDevice          = 0x0100,//device version 1.0
+  .bcdDevice          = 0x0130,//device version 1.3
   .iManufacturer      = 0,//no symbolic name reserved in string descriptor
   .iProduct           = 0,//no symbolic name reserved in string descriptor
   .iSerialNumber      = 1,//serial number is in StringDescriptor_1
@@ -44,29 +44,28 @@ static GetConfigResponse_TypeDef GetConfigResponse __attribute__(( aligned(2), s
     .bInterfaceProtocol     = 0x50,//BULK-ONLY transport
     .iInterface             = 0x00//no symbolic name reserved in string descriptor
   },
-  .EndpointDescriptor_2_OUT =
+  .EndpointDescriptor_1_OUT =
   {
     .bLength                = sizeof(EndpointDescriptor_TypeDef),
     .bDescriptorType        = 0x05,//ENDPOINT descriptor type
-    .bEndpointAddress       = 0x02,//EP2_OUT endpoint
+    .bEndpointAddress       = 0x01,//EP1_OUT endpoint
     .bmAttributes           = 0x02,//BULK endpoint
-    .wMaxPacketSize         = MAXPACKET_MSD,//max packet size for EP2 (default = 64 bytes)
+    .wMaxPacketSize         = MAXPACKET_MSD,//max packet size for EP1 (default = 64 bytes)
     .bInterval              = 0x00//this field is not used
   },
-  .EndpointDescriptor_3_IN =
+  .EndpointDescriptor_2_IN =
   {
     .bLength                = sizeof(EndpointDescriptor_TypeDef),
     .bDescriptorType        = 0x05,//ENDPOINT descriptor type
-    .bEndpointAddress       = 0x83,//EP3_IN endpoint
+    .bEndpointAddress       = 0x82,//EP2_IN endpoint
     .bmAttributes           = 0x02,//BULK endpoint
-    .wMaxPacketSize         = MAXPACKET_MSD,//max packet size for EP3 (default = 64 bytes)
+    .wMaxPacketSize         = MAXPACKET_MSD,//max packet size for EP2 (default = 64 bytes)
     .bInterval              = 0x00//this field is not used
   }
   
 };
 
-//string descriptors. only english (0x0409) is present in supported LANGID list
-static unsigned short StringDescriptor_0[2] __attribute__(( aligned(2), section(".rodata,\"a\",%progbits@") )) = { 0x0304, 0x0409 };
-static unsigned short StringDescriptor_1[13] __attribute__(( aligned(2), section(".rodata,\"a\",%progbits@") )) = { 0x031A, '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C' };
+static unsigned short StringDescriptor_0[2] __attribute__(( aligned(2), section(".rodata,\"a\",%progbits@") )) = { 0x0304, 0x0409 };//LANGID list; only english (united states) is supported
+static unsigned short StringDescriptor_1[13] __attribute__(( aligned(2), section(".rodata,\"a\",%progbits@") )) = { 0x031A, '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C' };//iSerial
 
 #endif //USB_RODATA_H

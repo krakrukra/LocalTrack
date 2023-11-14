@@ -13,11 +13,11 @@ W25N01GVZEIG 128MiB flash memory chip --- 1pcs
 SIM28 GPS receiver module --- 1pcs
 1575R-A 25x25x4mm GPS patch antenna 1575.42MHz --- 1pcs
 
-MCP1700T-3302E 3.3V LDO voltage regulator --- 1pcs
+MCP1700T-3302E/TT 3.3V LDO voltage regulator --- 1pcs
 MCP73831T-2DCI single li-po cell charge controller IC --- 2pcs
 SI2302 N-channel mosfet --- 4pcs
 SI2301 P-channel mosfet --- 2pcs
-IP4220CZ6 ESD protection diode --- 2pcs
+IP4220CZ6 ESD protection diode --- 1pcs
 ADXL345BCCZ MEMS accelerometer --- 1pcs
 0805 (metric 2012) ceramic capacitor 10uF X5R 10% 16V --- 4pcs
 0603 (metric 1608) ceramic capacitor 100nF X7R 10% 50V --- 9pcs

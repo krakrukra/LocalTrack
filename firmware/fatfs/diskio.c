@@ -73,13 +73,7 @@ DSTATUS disk_initialize (BYTE pdrv)
   if(pdrv != 0) return STA_NOINIT;//only physical drive 0 is available
   if(DiskInfo.pdrv0_status == 0) return 0;//if disk is already initialized, do nothing
   
-  //clocks configuration  
-  RCC->AHBENR  |= (1<<17)|(1<<0);//enable GPIOA, DMA1 clock
-  RCC->APB1ENR |= (1<<5);//enable TIM7 clock
-  
   //SPI1 configuration
-  GPIOA->MODER |= (1<<15)|(1<<13)|(1<<11)|(1<<6);//PA5, PA6, PA7 are in alternate function mode (SPI1); PA3 is output
-  GPIOA->BSRR = (1<<3);//pull PA3 high (SPI1 CS output)
   SPI1->CR2 = (1<<12)|(1<<10)|(1<<9)|(1<<8);//8 bit frames, software CS output, RXNE set after 8 bits received, interrupts disabled
   SPI1->CR1 = (1<<9)|(1<<8)|(1<<6)|(1<<3)|(1<<2);//bidirectional SPI, master mode, MSb first, 2Mhz clock, mode 0; enable SPI1
   NVIC_EnableIRQ(10);//enable DMA interrupt
@@ -108,8 +102,7 @@ DSTATUS disk_initialize (BYTE pdrv)
   DiskInfo.WritePageFlag = 0;
   DiskInfo.pdrv0_status = 0;
   DiskInfo.BusyFlag = 0;
-
-  __enable_irq();//enable interrupts globally
+  
   return 0;
 }
 
@@ -500,7 +493,7 @@ static void relocate_LS(unsigned short LSindex)
 	      read_PP((oldEBI * 64) + PPOmap[i]);//copy LP data from old EB into internal Data Buffer	      
 	      write_buffer((unsigned char*) &LSindex, 2048 + 2, 2);//write new LSImarker to internal Data Buffer
 	      PPOmap[i] = newPPO;//rewrite one PPOmap[] entry with new data
-	      	      
+	      
 	      if(newPPO == (LPcount - 1))//if the last LP is being relocated
 		{
 		  //save the new updated PPOmap[] in page metadata

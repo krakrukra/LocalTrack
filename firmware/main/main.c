@@ -50,46 +50,46 @@ static unsigned char MonthToDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 
 
 LoggerInfo_TypeDef LoggerInfo =
   {
-   .RMCdata =
-   {
-    .time = 0,
-    .latitude = 0,
-    .longitude = 0,
-    .speed = 0,
-    .course = 0,
-    .date = 0,
-    .dataStatus = 0
-   },
-   
-   .GGAdata =
-   {
-    .time = 0,
-    .latitude = 0,
-    .longitude = 0,
-    .altitude = 0,
-    .hdop = 5000,
-    .numSatUsed = 0,
-    .dataStatus = 0
-   },
-   
-   .GSAdata =
-   {
-    .pdop = 5000,
-    .hdop = 5000,
-    .vdop = 5000,
-    .fixType = 1 
-   },
-   
-   .SupplyVoltage = 0,
-   .BatteryVoltage = 0,
-   .TrackFileOffset = 0,
-   .NMEApointer = &NMEAbuffer[0],
-   .UTCoffset = 0,
-   .GPXsize = 0,
-   .FileName  = {0},
-   .TrackName = {0},
-   .FixInterval = "PMTK220,1000",
-   .ConfigFlags = 0
+    .RMCdata =
+    {
+      .time = 0,
+      .latitude = 0,
+      .longitude = 0,
+      .speed = 0,
+      .course = 0,
+      .date = 0,
+      .dataStatus = 0
+    },
+    
+    .GGAdata =
+    {
+      .time = 0,
+      .latitude = 0,
+      .longitude = 0,
+      .altitude = 0,
+      .hdop = 5000,
+      .numSatUsed = 0,
+      .dataStatus = 0
+    },
+    
+    .GSAdata =
+    {
+      .pdop = 5000,
+      .hdop = 5000,
+      .vdop = 5000,
+      .fixType = 1 
+    },
+    
+    .SupplyVoltage = 0,
+    .BatteryVoltage = 0,
+    .TrackFileOffset = 0,
+    .NMEApointer = &NMEAbuffer[0],
+    .UTCoffset = 0,
+    .GPXsize = 0,
+    .FileName  = {0},
+    .TrackName = {0},
+    .FixInterval = "PMTK220,1000",
+    .ConfigFlags = 0
   };
 
 //------------------------------------------------------------------------------------
@@ -99,7 +99,7 @@ int main()
   //clocks configuration  
   RCC->CFGR3 |= (1<<4);//I2C1 runs on system clock
   RCC->AHBENR |= (1<<19)|(1<<18)|(1<<17)|(1<<0);//enable GPIOA, GPOIB, GPIOC, DMA1 clocks
-  RCC->APB1ENR |= (1<<28)|(1<<21)|(1<<1)|(1<<0);//enable PWR, I2C1, TIM2, TIM3 clocks
+  RCC->APB1ENR |= (1<<28)|(1<<21)|(1<<5)|(1<<1)|(1<<0);//enable PWR, I2C1, TIM2, TIM3, TIM7 clocks
   RCC->APB2ENR |= (1<<14)|(1<<12)|(1<<9)|(1<<0);//enable USART1, SPI1, ADC_interface, SYSCFG clocks
   ADC1->CFGR2 = (1<<30);//ADC1 clock = PCLK / 2
   RCC->CSR |= (1<<0);//enable LSI clock
@@ -159,32 +159,25 @@ int main()
 //------------------------------------------------------------------------------------
   
   restart_tim2(5);//have a startup delay of 5ms for W25N01GVZEIG
-  while(TIM2->CR1 & (1<<0)) voltageCheck();//while timer runs out, keep measuring battery and supply voltages
+  while(TIM2->CR1 & (1<<0)) voltageCheck();//while timer runs out, keep measuring and supply voltage
   
-  //do not proceed unless battery voltage is sufficient for operation
-  if( (LoggerInfo.SupplyVoltage < 285000) && (LoggerInfo.BatteryVoltage < 305000) )
-    {
-      sim28_init();//configure SIM28, ensure it is in a known state
-      sim28_sleep();//tell SIM28 to enter sleepmode
-      while( (LoggerInfo.SupplyVoltage < 310000) || (LoggerInfo.BatteryVoltage < 320000) ) voltageCheck();//wait until battery is recharged
-    }
-  
+  //if battery is discharged, stop and wait until battery is recharged up to minimum working level
+  if(LoggerInfo.SupplyVoltage < 290000) while(LoggerInfo.SupplyVoltage < 300000) voltageCheck();
   
   if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if f_mount() was successful
     { 
       verifyGPXfiles();//append GPX track and file terminations to all GPX files that do not have it (eg. because of poweroff)
       readConfigFile();//run configuration commands from config.txt
       sim28_init();//configure SIM28, ensure it is in a known state
-      restart_tim3(300);//set sleepmode timer to 5 minutes
-     }
+    }
   else//if no valid FAT was found
     {
       disk_initialize(0);//initialize the flash storage for MSD use
       sim28_init();//configure SIM28, ensure it is in a known state
       sim28_sleep();//tell SIM28 to enter sleepmode, since there is nowhere to store the data
-      restart_tim3(60);//set sleepmode timer to 1 minute
     }
   
+  restart_tim3(300);//set sleepmode timer to 5 minutes
   adxl_init();//initialize ADXL345
   
   while(1)
@@ -205,37 +198,20 @@ int main()
 //if necessary, enter sleep mode (or low battery mode)
 static void sleepmodeCheck()
 {
-  if( (GPIOC->IDR & (1<<15)) && (LoggerInfo.TrackName[0]) )//if activity was detected while some GPX track is being written
+  if(GPIOC->IDR & (1<<15))//if activity was detected
     {
       restart_tim3(120);//reset sleepmode timer to 2 minutes
       adxl_clear();//clear activity signal
     }
   
-  if( !(TIM3->CR1 & (1<<0)) )//if sleepmode timer had ran out (no activity or speed detected)
+  //if sleepmode timer had ran out (no activity or speed detected), or if battery is discharged
+  if( !(TIM3->CR1 & (1<<0)) || (LoggerInfo.SupplyVoltage < 290000) )
     {
       stopCurrentTrack();//if some track file was being written, add track termination
       sim28_sleep();//tell SIM28 to enter sleepmode
       adxl_clear();//clear activity signal, so that MCU can wake up on new activity detection
       MCUsleep();//enter MCU sleep mode
-      
-      if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if valid filesystem is available
-	{
-	  sim28_init();//wake up SIM28
-	  restart_tim3(300);//set sleepmode timer to 5 minutes
-	}
-      else//if filesystem can not be mounted
-	{
-	  //keep SIM28 in sleep mode
-	  restart_tim3(60);//set sleepmode timer to 1 minute
-	}
-    }
-  
-  //if battery and supply voltages are not sufficient for device operation
-  if( (LoggerInfo.SupplyVoltage < 285000) && (LoggerInfo.BatteryVoltage < 305000) )
-    {
-      stopCurrentTrack();//if some track file was being written, add track and file termination
-      sim28_sleep();//tell SIM28 to enter sleepmode
-      while( (LoggerInfo.SupplyVoltage < 310000) || (LoggerInfo.BatteryVoltage < 320000) ) voltageCheck();//wait until battery is recharged
+      while(LoggerInfo.SupplyVoltage < 300000) voltageCheck();//wait until battery is recharged up to minimum working level
       
       if( f_mount(&FATFSinfo, "0:", 1) == FR_OK )//if valid filesystem is available
 	{
@@ -308,11 +284,11 @@ static void voltageCheck()
       if(ADC1->ISR & (1<<3)) LoggerInfo.BatteryVoltage = ( LoggerInfo.SupplyVoltage * ADC1->DR ) / 1365;// Vbat / 3 = Vdd / 2^12 * Vmeas       
       //if Vref channel was converted (sequence not over yet), compute MCU supply voltage
       else LoggerInfo.SupplyVoltage = ( 330000 * *((unsigned short*) 0x1FFFF7BA) ) / ADC1->DR;// Vdd = 3.3V * VREFINT_CAL / VREFINT_DATA
-
+      
       ADC1->ISR = (1<<3)|(1<<2)|(1<<1);//clear EOSEQ, EOC, EOSMP flags
       ADC1->CR = (1<<2)|(1<<0);//start new ADC conversion
     }
-
+  
   return;
 }
 
@@ -354,7 +330,8 @@ static void processNMEA()
       if( ((LoggerInfo.RMCdata).dataStatus = 1) && ((LoggerInfo.GGAdata).dataStatus == 1) && ((LoggerInfo.RMCdata).time == (LoggerInfo.GGAdata).time) )
 	{
 	  if(LoggerInfo.TrackName[0] == 0) startNewTrack();//if there is no current track, start a new one
-	  addTrackPoint();//add new trackpoint to GPXbuffer[]
+	  //add new trackpoint to GPXbuffer[], unless it has 0,0 coordinates
+	  if( (LoggerInfo.RMCdata).longitude || (LoggerInfo.RMCdata).latitude ) addTrackPoint();
 	  
 	  (LoggerInfo.RMCdata).dataStatus = 0;//set RMC dataStatus to invalid, so the message is not used again
 	  (LoggerInfo.GGAdata).dataStatus = 0;//set GGA dataStatus to invalid, so the message is not used again
@@ -622,7 +599,16 @@ static void startNewTrack()
   appendGPXtext("<cmt>Battery Voltage: ");
   appendGPXvalue(LoggerInfo.BatteryVoltage, 100000, 100000);
   LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
-  appendGPXtext("V</cmt>\n");
+  appendGPXtext("V ");
+       if(LoggerInfo.BatteryVoltage >= 420000) appendGPXtext("100%");
+  else if(LoggerInfo.BatteryVoltage <= 330000) appendGPXtext("0%");
+  else
+    {
+      appendGPXvalue( (LoggerInfo.BatteryVoltage - 330000) / 9, 100, 100 );
+      LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
+      appendGPXtext("%");
+    }
+  appendGPXtext("</cmt>\n");
   appendGPXtext("<trkseg>\n");
   
   return;
@@ -653,7 +639,7 @@ static void stopCurrentTrack()
 	    }
 	}
       
-      else//if current track is at least 3 minutes long
+      else//if current track is at least 3 minutes long or ShortTrackFlag is set
 	{ 
 	  //save all the new processed data to a GPX file
 	  if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK)

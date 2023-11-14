@@ -1,8 +1,10 @@
 *~
 *#
-*.elf
 *.o
+*.bin
+*.elf
 *.bak
+*-bak
 *.bck
 *.kicad_pcb-bak
 *-cache.lib

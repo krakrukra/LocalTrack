@@ -14,51 +14,51 @@ void adxl_init()
   
   I2C1->CR2 = (0x05<<16)|(1<<13)|(0x53<<1);//set NBYTES=5, send START, 0x53+write
   I2C1->TXDR = 0x24;//register address 0x24
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 32;//2g activity thereshold
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 20;//1.25g inactivity thereshold
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 180;//set inactivity time of 180 seconds
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 0b01110000;//dc operation, all axes enabled for ACT, INACT is disabled
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x2F;//register address 0x2F
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00001000;//activity - INT1, inactivity - INT2
-  while( !(I2C1->ISR & (1<<0)) );
+  I2C1->CR2 = (0x03<<16)|(1<<13)|(0x53<<1);//set NBYTES=3, send START, 0x53+write
+  I2C1->TXDR = 0x2E;//register address 0x2E
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
+  I2C1->TXDR = 0b00010000;//enable only activity interrupt
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
+  I2C1->TXDR = 0b11101111;//activity - INT1, all others - INT2
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
   I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
   I2C1->TXDR = 0x31;//register address 0x31
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 0b00001011;//full resolution, 16g range
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
   I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
   I2C1->TXDR = 0x38;//register address 0x38
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0x00;//FIFO bypass mode
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
+  I2C1->TXDR = 0b10010000;//use FIFO stream mode
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (1<<14);//send STOP
-
-  I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
-  I2C1->TXDR = 0x2E;//register address 0x2E
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->TXDR = 0b00010000;//enable only activity interrupt
-  while( !(I2C1->ISR & (1<<0)) );
-  I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
   I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
   I2C1->TXDR = 0x2D;//register address 0x2D
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 0b00001000;//no link mode, start measurements
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
   return;
 }
@@ -69,11 +69,12 @@ void adxl_clear()
   //read ADXL345 INT_SOURCE register to reset INT lines to 0
   I2C1->CR2 = (0x01<<16)|(1<<13)|(0x53<<1);//set NBYTES=1, send START, 0x53+write
   I2C1->TXDR = (0x30);//register address 0x30
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (0x01<<16)|(1<<13)|(1<<10)|(0x53<<1);//set NBYTES=1, send reSTART, 0x53+read
-  while( !(I2C1->ISR & (1<<2)) );
+  while( !(I2C1->ISR & (1<<2)) );//wait until data is received into RXDR register
   I2C1->RXDR;//read RXDR register
-  I2C1->CR2 = (1<<14);//send NACK, STOP
+  I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
   return;
 }
@@ -83,10 +84,11 @@ void adxl_standby()
 {
   I2C1->CR2 = (0x02<<16)|(1<<13)|(0x53<<1);//set NBYTES=2, send START, 0x53+write
   I2C1->TXDR = 0x2D;//register address 0x2D
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<0)) );//wait until next byte can be sent
   I2C1->TXDR = 0x00;//enter standby mode
-  while( !(I2C1->ISR & (1<<0)) );
+  while( !(I2C1->ISR & (1<<6)) );//wait until transfer is complete
   I2C1->CR2 = (1<<14);//send STOP
+  while(I2C1->ISR & (1<<15));//wait until STOP condition is detected
   
   return;
 }
@@ -102,7 +104,7 @@ void sim28_init()
   else                                GPIOA->MODER |=  (1<<0);
   
   do
-    {      
+    { 
       //restart USART1 with default baudrate for SIM28
       USART1->CR1 = 0;//disable USART1
       USART1->BRR = 833;//change USART1 baudrate to 9600
@@ -176,8 +178,8 @@ void sim28_sleep()
 //$ symbol at the start and * with checksum at the end will be appended
 void sim28_send(char* cmd)
 {
-  unsigned char checksum = 0;
-  unsigned char digit = 0;
+  unsigned char checksum = 0;//used to calculate NMEA checksum of a message being sent
+  unsigned char digit = 0;//used to convert NMEA checksum value to ASCII symbols
   
   while( !(USART1->ISR & (1<<7)) );//wait until a new symbol can be sent
   USART1->TDR = 0x24;//place $ symbol at the start
@@ -223,7 +225,7 @@ unsigned char sim28_receive(char* referenceString)
 {
   char* whereToCheck = referenceString;//used to compare received message with expected one
   char  symbol;//holds last symbol received over USART1
-
+  
   if(!sim28_active) return 0;//if SIM28 is in sleepmode return 0 immediately  
   restart_tim2(250);//wait no more than 250ms for expected string to be completely received
   

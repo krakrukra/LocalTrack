@@ -94,7 +94,7 @@ static inline void initialize_bss(unsigned int* bss_start, unsigned int* bss_end
 static void startup()
 {
   RCC->AHBENR |= (1<<17);//enable GPIOA clock
-  GPIOA->MODER |= (1<<6);//PA3 is output
+  GPIOA->MODER |= (1<<15)|(1<<13)|(1<<11)|(1<<6);//PA5, PA6, PA7 are in alternate function mode (SPI1); PA3 is output
   GPIOA->BSRR = (1<<3);//pull PA3 high (SPI1 CS output)
   
   RCC->CR |= (1<<19)|(1<<16);//enable HSE clock, clock security system

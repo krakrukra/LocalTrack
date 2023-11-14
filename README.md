@@ -29,7 +29,7 @@ as it does not have information like IMEI, IMSI, payment history, etc. linked to
   
 ## hardware
   
-Project is designed using KiCad 5.0.2  
+Project is designed using KiCad 6.0.11  
 Check KiCad pcb file for PCB manufacturing info  
 Check KiCad sch file + BOM.txt for component info  
   
@@ -55,12 +55,12 @@ a cable with extra long 8mm micro USB plug, instead of the usual 5.4mm plug.
 ## firmware  
   
 Programming language used = C  
-Flashing software used = openocd  
+Flashing software used = openocd 0.12.0  
 IDE used = emacs text editor + Makefile  
   
-The firmware was developed on debian 10.3 system, using gcc-arm-none-eabi  
+The firmware was developed on debian 11.3 system, using gcc-arm-none-eabi  
 toolchain (compiler, linker, binutils) and it does use gcc specific extentions.  
-it was successfully compiled and tested with arm-none-eabi-gcc version 7.3.1  
+it was successfully compiled and tested with arm-none-eabi-gcc version 12.2.1  
   
 Depends on libgcc.a, which is included in this repository. linker script,  
 startup code and openocd configuration files are included here as well.  
@@ -68,8 +68,8 @@ startup code and openocd configuration files are included here as well.
 For easy in-field updates, you can use the DFU bootloader. There is a dfu  
 firmware image available in **/firmware/firmware\_RRNNN.dfu** file. The name  
 format is this: RR stands for board revision (13 = rev 1.3) , NNN stands  
-for firmware version. For example, firmware\_13000.dfu means board  
-revision 1.3, firmware version 0  
+for firmware version. For example, firmware\_13001.dfu means board  
+revision 1.3, firmware version 1  
   
   
 To automate firmware build process you can use make utility. If you  
@@ -90,14 +90,16 @@ delete all the compiled or temporary files created by previous commands.
   
 ## directories info  
   
-#### /firmware/ --------------- contains makefile, linker script, source files; this is a build directory  
+#### /firmware/ ------------- contains makefile, linker script, source files; this is a build directory  
 /firmware/cmsis/ ------- header files from CMSIS compliant [STM32F0xx standard peripherals library](https://www.st.com/content/st_com/en/products/embedded-software/mcus-embedded-software/stm32-embedded-software/stm32-standard-peripheral-libraries/stsw-stm32048.html)  
 /firmware/stdlib/ ---------- standard statically linked libraries (libgcc.a)  
-/firmware/openocd/ ------- standard configuration files for openocd  
+/firmware/openocd/ ------- standard configuration files for openocd 0.12.0  
 /firmware/fatfs/ ---------- [chan fatfs](http://www.elm-chan.org/fsw/ff/00index_e.html) filesystem module + W25N01GVZEIG disk driver  
-/firmware/usb/ ------------ USB stack and MSD class device implementation  
+/firmware/usb/ ------------ USB system and MSD class device implementation  
 /firmware/main/ ------- main application files, interrupt vector table, IRQ handlers and startup code  
 /firmware/dfuse-pack.py ------- python script to create .dfu firmware images  
+/firmware/linkScript.ld ------- custom linker script for the GNU linker (ld)  
+/firmware/Makefile ------- file used by GNU make utility for build automation  
 /firmware/firmware_13NNN.dfu ------ pre-compiled firmware image in DfuSe format (STM32)  
   
 #### /hardware/ ------------------- contains KiCad project, schematic, PCB files  
@@ -125,5 +127,5 @@ For extra security, you could use my PGP public key saved in [/extra/pubkey.asc]
   
 #### if you want to buy:  
   
-not available for sale yet; put tindie store link here  
+not available for sale yet; put store link here  
   
