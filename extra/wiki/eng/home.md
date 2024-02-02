@@ -8,7 +8,8 @@ conversion, for example [gpsbabel](https://www.gpsbabel.org).
   
 Once you power the device ON with the switch, it will try to receive  
 signal from available GPS sattelites. If a valid position fix is acquired,  
-a new trackpoint will be added to current GPX track. Each GPX track  
+a new trackpoint will be added to current GPX track. After a set period  
+of time elapses (1s by default) the next point will be added. Each GPX track  
 has a name in this format: **HH:MM:SS**, where HH is hour in 24-hour  
 format, MM is minute, SS is second of when the GPX track was started.  
 Tracks are grouped into files, with file names like this: **YY-MM-DD.GPX**,  
@@ -34,6 +35,7 @@ You can find more info about that in dedicated wiki pages.
   
 #### Read other wiki pages:  
 * [configuration](https://github.com/krakrukra/LocalTrack/wiki/configuration)  
+* [status file](https://github.com/krakrukra/LocalTrack/wiki/status)  
 * [DFU bootloader](https://github.com/krakrukra/LocalTrack/wiki/bootloader)  
   
 #### Some tutorial videos are available on my [youtube channel](https://www.youtube.com/channel/UC8HZCV1vNmZvp7ci1vNmj7g)  

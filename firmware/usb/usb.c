@@ -25,7 +25,7 @@ extern MSDinfo_TypeDef MSDinfo;
 static void restart_tim6(unsigned short time, unsigned short prescaler);
 
 //this data structure is needed for control transfers
-ControlInfo_TypeDef ControlInfo;
+static ControlInfo_TypeDef ControlInfo;
 
 //----------------------------------------------------------------------------------------------------------------------
 
@@ -652,7 +652,7 @@ static void processGetMaxLunRequest()
 
 //generic functions
 
-//run TIM2 for a specified time (max argument for time is 1365), APBCLK is expected to be 48MHz;
+//run TIM6 for a specified time (max argument for time is 1365), APBCLK is expected to be 48MHz;
 //set prescaler = 0 for delay in microseconds, set prescaler = 999 for delay in milliseconds
 static void restart_tim6(unsigned short time, unsigned short prescaler)
 {

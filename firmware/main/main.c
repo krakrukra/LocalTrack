@@ -8,9 +8,9 @@
 static void sleepmodeCheck();
 static void diskmodeCheck();
 static void voltageCheck();
+static void processNMEA();
 
 //functions for processing of NMEA data
-static void processNMEA();
 static void processGPRMC();
 static void processGPGGA();
 static void processGPGSA();
@@ -33,6 +33,7 @@ static void setDateTime();
 //other functions
 static void MCUsleep();
 static void verifyGPXfiles();
+static void writeStatusFile();
 static void enterBootloader();
 
 //FATFS related global variables
@@ -58,7 +59,8 @@ LoggerInfo_TypeDef LoggerInfo =
       .speed = 0,
       .course = 0,
       .date = 0,
-      .dataStatus = 0
+      .dataStatus = 0,
+      .mode = 0
     },
     
     .GGAdata =
@@ -86,6 +88,7 @@ LoggerInfo_TypeDef LoggerInfo =
     .NMEApointer = &NMEAbuffer[0],
     .UTCoffset = 0,
     .GPXsize = 0,
+    .MaxNumSat = 0,
     .FileName  = {0},
     .TrackName = {0},
     .FixInterval = "PMTK220,1000",
@@ -233,8 +236,9 @@ static void diskmodeCheck()
 {
   if(GPIOB->IDR & (1<<13))//if VBUS voltage is detected
     { 
-      stopCurrentTrack();//if some track file was being written, add track and file termination
       sim28_sleep();//tell SIM28 to enter sleepmode
+      stopCurrentTrack();//if some track file was being written, add track and file termination
+      writeStatusFile();//take a snapshot of current status values, save them into a text file
       
       FLASH->ACR = (1<<4)|(1<<0);//enable prefetch buffer, insert 1 wait state for flash read access (needed because SYSCLK will be 48MHz)
       
@@ -344,7 +348,7 @@ static void processNMEA()
   if(LoggerInfo.GPXsize)//if there is a need to save some data into a file
     {
       //save all the new processed data to a GPX file
-      if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK)
+      if( f_open(&FILinfo, (char*) &LoggerInfo.FileName, FA_OPEN_APPEND | FA_WRITE) == FR_OK )
 	{
 	  f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
 	  f_close(&FILinfo);
@@ -388,6 +392,14 @@ static void processGPRMC()
   skipAfter(',');//move to date field, read the value
   (LoggerInfo.RMCdata).date = readValue(1);
   
+  skipAfter(',');//move to magnetic variation field
+  skipAfter(',');//move to east/west field
+  
+  skipAfter(',');//move to GPS mode field, read the value
+       if(*LoggerInfo.NMEApointer == 'A') (LoggerInfo.RMCdata).mode = 1;
+  else if(*LoggerInfo.NMEApointer == 'D') (LoggerInfo.RMCdata).mode = 2;
+  else                                    (LoggerInfo.RMCdata).mode = 0;
+  
   skipAfter(0x0A);//skip to the next command
   return;
 }
@@ -418,8 +430,9 @@ static void processGPGGA()
   else if(*LoggerInfo.NMEApointer == '6') (LoggerInfo.GGAdata).dataStatus = 1;
   else                                    (LoggerInfo.GGAdata).dataStatus = 0;
   
-  skipAfter(',');//move to sattelites used field, read the value
+  skipAfter(',');//move to sattelites used field, read the value; update maximum sattelites value if necessary
   (LoggerInfo.GGAdata).numSatUsed = readValue(1);
+  if( (LoggerInfo.GGAdata).numSatUsed > LoggerInfo.MaxNumSat ) LoggerInfo.MaxNumSat = (LoggerInfo.GGAdata).numSatUsed;
   
   skipAfter(',');//move to hdop field, read the value
   (LoggerInfo.GGAdata).hdop = readValue(100);
@@ -436,7 +449,7 @@ static void processGPGSA()
 {
   skipAfter(',');//move to mode 1 field, do nothing
   
-  skipAfter(',');//move to mode 2 field; '2' means 2D fix, '3' means 3D fix
+  skipAfter(',');//move to mode 2 field; '1' means fix not availabe, '2' means 2D fix, '3' means 3D fix
        if(*LoggerInfo.NMEApointer == '2') (LoggerInfo.GSAdata).fixType = 2;
   else if(*LoggerInfo.NMEApointer == '3') (LoggerInfo.GSAdata).fixType = 3;
   else                                    (LoggerInfo.GSAdata).fixType = 1;
@@ -453,7 +466,7 @@ static void processGPGSA()
   skipAfter(',');//move to sattelite used field 10, do nothing
   skipAfter(',');//move to sattelite used field 11, do nothing
   skipAfter(',');//move to sattelite used field 12, do nothing
-
+  
   skipAfter(',');//move to pdop field, read the value
   (LoggerInfo.GSAdata).pdop = readValue(100);
   
@@ -596,19 +609,16 @@ static void startNewTrack()
   appendGPXtext("<name>");
   appendGPXtext((char*) LoggerInfo.TrackName);
   appendGPXtext("</name>\n");
-  appendGPXtext("<cmt>Battery Voltage: ");
+  appendGPXtext("<cmt>Battery Status: ");
   appendGPXvalue(LoggerInfo.BatteryVoltage, 100000, 100000);
   LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
   appendGPXtext("V ");
-       if(LoggerInfo.BatteryVoltage >= 420000) appendGPXtext("100%");
-  else if(LoggerInfo.BatteryVoltage <= 330000) appendGPXtext("0%");
-  else
-    {
-      appendGPXvalue( (LoggerInfo.BatteryVoltage - 330000) / 9, 100, 100 );
-      LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
-      appendGPXtext("%");
-    }
-  appendGPXtext("</cmt>\n");
+       if(LoggerInfo.BatteryVoltage >= 420000) appendGPXvalue( (420000 - 330000) / 9, 100, 100 );//voltage of 4.2V or more is 100% charge
+  else if(LoggerInfo.BatteryVoltage <= 330000) appendGPXvalue( (330000 - 330000) / 9, 100, 100 );//voltage of 3.3V or less is 0% charge
+  else                                         appendGPXvalue( (LoggerInfo.BatteryVoltage - 330000) / 9, 100, 100 );//convert volts to %
+  LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
+  
+  appendGPXtext("%</cmt>\n");
   appendGPXtext("<trkseg>\n");
   
   return;
@@ -747,7 +757,7 @@ static void appendGPXtext(char* text)
 //convert integer to a string and append it to the previous data in GPXbuffer[], increment GPXsize accordingly;
 //value will be divided by a specified divisor, in order to place a decimal point separator in the right place;
 //leading zero digits with significance bigger than skipLimit will be omitted, nonzero digits are never omitted;
-//divisor and skipLimit must be numbers that are a power of 10, from 10^0 to 10^9; skipLimit should not be less than divisor
+//divisor and skipLimit must be numbers that are a power of 10, from 10^0 to 10^9; skipLimit must not be less than divisor
 static void appendGPXvalue(int value, unsigned int divisor, unsigned int skipLimit)
 { 
   unsigned int  divideBy = 1000000000;//used to step through the digits in specified decimal value
@@ -804,9 +814,10 @@ static void readConfigFile()
   LoggerInfo.FixInterval[12] = 0x00;
   LoggerInfo.FixInterval[13] = 0x00;
   
-  //reset UTC offset to 0 minutes, clear all config flags
+  //reset UTC offset to 0 minutes, clear MaxNumSat and all config flags
   LoggerInfo.UTCoffset = 0;
   LoggerInfo.ConfigFlags = 0;
+  LoggerInfo.MaxNumSat = 0;
   
   //try to open config.txt and load the settings from there
   if( f_open(&FILinfo, "0:/config.txt", FA_READ) == FR_OK )
@@ -1035,6 +1046,65 @@ static void verifyGPXfiles()
       result = f_findnext(&DIRinfo, &FILINFOinfo);
     }
   f_closedir(&DIRinfo);
+  
+  return;
+}
+
+static void writeStatusFile()
+{
+  LoggerInfo.GPXsize = 0;//start writing data at the beginning of GPXbuffer[]
+  
+  //write battery status in volts and in % of full charge
+  appendGPXtext("Battery status: ");
+  appendGPXvalue(LoggerInfo.BatteryVoltage, 100000, 100000);
+  LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
+  appendGPXtext("V ");
+       if(LoggerInfo.BatteryVoltage >= 420000) appendGPXvalue( (420000 - 330000) / 9, 100, 100 );//voltage of 4.2V or more is 100% charge
+  else if(LoggerInfo.BatteryVoltage <= 330000) appendGPXvalue( (330000 - 330000) / 9, 100, 100 );//voltage of 3.3V or less is 0% charge
+  else                                         appendGPXvalue( (LoggerInfo.BatteryVoltage - 330000) / 9, 100, 100 );//convert volts to %
+  LoggerInfo.GPXsize = LoggerInfo.GPXsize - 3;
+  appendGPXtext("%\n");
+  
+  //write if DGPS is enabled or not
+  appendGPXtext("Operation mode: ");
+       if( (LoggerInfo.RMCdata).mode == 1 ) appendGPXtext("Autonomous\n");
+  else if( (LoggerInfo.RMCdata).mode == 2 ) appendGPXtext("DGPS\n");
+  else                                      appendGPXtext("Fix not available\n");
+  
+  //show how many sattelites are being used
+  appendGPXtext("Satellites used now: ");
+  appendGPXvalue( (LoggerInfo.GGAdata).numSatUsed, 1, 1 );
+  appendGPXtext("\n");
+  
+  //show max number of sattelites used since last status.txt update
+  appendGPXtext("Max number of satellites: ");
+  appendGPXvalue( LoggerInfo.MaxNumSat, 1, 1 );
+  appendGPXtext("\n");
+  
+  //show postion dilution of precision value
+  appendGPXtext("PDOP: ");
+  if( (LoggerInfo.GSAdata).fixType == 1 ) appendGPXvalue( 5000, 100, 100 );//if fix not available report PDOP=50
+  else                                    appendGPXvalue( (LoggerInfo.GSAdata).pdop, 100, 100 );
+  appendGPXtext("\n");
+  
+  //show horisontal dilution of precision value
+  appendGPXtext("HDOP: ");
+  if( (LoggerInfo.GSAdata).fixType == 1 ) appendGPXvalue( 5000, 100, 100 );//if fix not available report HDOP=50
+  else                                    appendGPXvalue( (LoggerInfo.GSAdata).hdop, 100, 100 );
+  appendGPXtext("\n");
+  
+  //show vertical dilution of precision value
+  appendGPXtext("VDOP: ");
+  if( (LoggerInfo.GSAdata).fixType == 1 ) appendGPXvalue( 5000, 100, 100 );//if fix not available report VDOP=50
+  else                                    appendGPXvalue( (LoggerInfo.GSAdata).vdop, 100, 100 );
+  appendGPXtext("\n");
+  
+  //save status data into a text file, overwrite if exists
+  if( f_open(&FILinfo, "status.txt", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK )
+    {
+      f_write(&FILinfo, (void*) &GPXbuffer, LoggerInfo.GPXsize, &temp);
+      f_close(&FILinfo);
+    }  
   
   return;
 }

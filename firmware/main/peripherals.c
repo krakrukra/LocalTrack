@@ -229,7 +229,7 @@ unsigned char sim28_receive(char* referenceString)
   if(!sim28_active) return 0;//if SIM28 is in sleepmode return 0 immediately  
   restart_tim2(250);//wait no more than 250ms for expected string to be completely received
   
-  while(TIM2->CR1 & (1<<0))//keep checking until expected message arrives or 100ms timer runs out
+  while(TIM2->CR1 & (1<<0))//keep checking until expected message arrives or TIM2 runs out
     { 
       if(USART1->ISR & (1<<5))//if a new character was received
 	{

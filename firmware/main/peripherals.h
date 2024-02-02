@@ -11,6 +11,7 @@ typedef struct
   unsigned int course;//decimal number in this format: DDDDD (in units of degree/100)
   unsigned int date;//decimal number in this format: DDMMYY (in units of day, month, year)
   unsigned char dataStatus;//0 means data is invalid, 1 means data is valid
+  unsigned char mode;//0 means fix not available, 1 means autonomous, 2 means DGPS
 } RMCdata_TypeDef;
 
 //structure describing information extracted from the last processed GPGGA message
@@ -46,6 +47,7 @@ typedef struct
   unsigned char* NMEApointer;//pointer to the next byte that will be processed in NMEAbuffer[]
     signed short UTCoffset;//holds offset in minutes of local time/date from UTC time/date
   unsigned short GPXsize;//holds how many bytes should be written to file from GPXbuffer[]
+  unsigned char  MaxNumSat;//holds maximum number of GPS sattellites that was visible since last status.txt update
   unsigned char  FileName[13];//name of file where to save current GPX track, formatted as YY-MM-DD.GPX (year-month-day.GPX)
   unsigned char  TrackName[9];//name of current GPX track, formatted as HH:MM:SS (hour:minute:second)
   unsigned char  FixInterval[14];//SIM28 command to set position fix interval in milliseconds
@@ -54,7 +56,7 @@ typedef struct
   // (1<<0) ShortTrackFlag; 1 means short tracks are allowed, 0 means short tracks are deleted
   // (1<<1) NoLedFlag; 1 means prevent SIM28 from turning on 1PPS LED, 0 allows 1PPS LED to blink
   // (1<<2) DFUmodeFlag; 1 means next diskmode entry is replaced with DFU entry, 0 means normal operation
-  // (1<<3) Reserved
+  // (1<<3) reserved;
   // (1<<4) ReportSpeedFlag; 1 means add speed information into GPX trackpoints, 0 means skip this field
   // (1<<5) ReportCourseFlag; 1 means add course information into GPX trackpoints, 0 means skip this field
   // (1<<6) ReportNumSatFlag; 1 means add number of sattelites used into GPX trackpoints, 0 means skip this field

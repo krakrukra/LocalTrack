@@ -1,7 +1,6 @@
 # LocalTrack  
   
-![outside](extra/photos/outside.jpg)  
-![inside](extra/photos/inside.jpg)  
+#### Русская версия документации доступна [здесь](https://github.com/krakrukra/LocalTrack/blob/master/extra/wiki/rus/README.md)  
   
 This device is an open source (both firmware and board level design) GPS data logger.  
 You mount it with built-in magnets on some vehicle, flip the power switch and the location  
@@ -9,6 +8,9 @@ data is saved into internal flash storage. After some tracks were recorded, you 
 retrieve the device again and extract GPX track files via USB. You can then pass these  
 files into mapping/analysis software of your choise, for example [viking](https://sourceforge.net/projects/viking), to get an  
 easy to work with representation of recorded location data.  
+  
+![outside](extra/photos/outside.jpg)  
+![inside](extra/photos/inside.jpg)  
   
 This device is intended for use in applications where real-time tracking is not required,  
 but other advantages of network-disconnected design are desirable, such as:  
@@ -37,11 +39,12 @@ Uses integrated full-speed (12Mbit/s) USB2.0 peripheral, with
 96MiB of available on-board flash memory for data storage;  
 measured speeds for MSD access: read 800-850 KiB/s, write 700-750 KiB/s  
   
+Fully assembled unit has dimensions of 85x55x32mm and weight of 175 grams.  
 Hardware programmer device used in this project is [ST-Link V2](https://www.aliexpress.com/item/1823628996.html)  
   
 SIM28 may come in several variants which have different USART speeds by default.  
 Firmare here expects 9600 baudrate version. If you have different module version  
-you will need to modify USART1 configuration in main.c and peripheral.c files.  
+you will need to modify USART1 configuration in main.c and peripherals.c files.  
   
 Device has a 3000mAh li-po battery and can function with battery voltage above 3V.  
 If lower voltage is detected, device enters low battery mode and waits until  
@@ -113,7 +116,7 @@ delete all the compiled or temporary files created by previous commands.
 /mechanical/KH-F20.FCStd --- freecad model for the plastic enclosure  
   
 #### /extra/ -------------------  contains pictures, documentation, etc.  
-/extra/photos/ ---------------- photos or the device  
+/extra/photos/ ---------------- photos of the device  
 /extra/wiki/ ------------------ github wiki pages  
   
 ## contact info  
