@@ -22,8 +22,8 @@ short out boot0 pin to 3.3V line. This will require you to take
 the lid off. Be careful, as there are wires connecting the board  
 with battery mounted on the lid. You will then see a 5 pin header  
 where you should connect 2 pins (using a jumper or some other  
-means) which are the farthest away from a nearby screw. Only  
-then connect the device and it will enter DFU mode right away;  
+means) which are the farthest away from a nearby screw. Only then  
+connect the device via USB and it will enter DFU mode right away;  
   
 ---
   

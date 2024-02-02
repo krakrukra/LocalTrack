@@ -1,6 +1,5 @@
 LocalTrack provides several configuration options with which you can  
 further specify how exactly the device should behave once powered on.  
-  
 Such behaviour changes are done through the use of configuration  
 commands. These commands are placed inside of a text file named  
 **config.txt** in the root directory of LocalTrack's USB storage.  
@@ -68,9 +67,10 @@ course is reported in degrees relative to true north in WGS84 datum,
 number of sattelites will show you a number (1 to 12) of sattelites used  
 to make position fix, fix type will give you a status string (2d or 3d).  
   
-7. "MASS_ERASE" command erases all the data blocks on the device which contain,  
-or have previously contained any data. The process takes just a few seconds.  
-Keep in mind, that any stored files and partition table will be lost. This command  
-is mainly intended to be a quick way to unrecoverably erase all the data on the  
-device, without having to manually overwrite all logical blocks for a couple of times.  
+7. "MASS_ERASE" command will erase all the data blocks on the device which contain,  
+or have previously contained any data next time USB cable is connected to a PC. The  
+process takes just a few seconds. Keep in mind, that any stored files and partition  
+table will be lost. This command is mainly intended to be a quick way to unrecoverably  
+erase all the data on the device, without having to manually overwrite all logical  
+blocks for a couple of times.  
   
