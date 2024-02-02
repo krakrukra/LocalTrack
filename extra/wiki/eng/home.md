@@ -1,3 +1,5 @@
+#### Русская версия документации доступна [здесь](https://github.com/krakrukra/LocalTrack/blob/master/extra/wiki/rus/home.md)  
+  
 LocalTrack GPS logger uses internal 96MiB flash memory to store  
 location data. It requires FAT16 or FAT32 filesystem on the first  
 partition (MBR partition table), and will place all the track  
