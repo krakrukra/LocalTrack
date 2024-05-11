@@ -64,7 +64,7 @@ disconnect the USB cable.
 commands add additional information to each GPX trackpoint. By default, all of  
 this information is omitted. If enabled, speed is reported in meters per second,  
 course is reported in degrees relative to true north in WGS84 datum,  
-number of sattelites will show you a number (1 to 12) of sattelites used  
+number of sattelites will show you a number (0 to 12) of sattelites used  
 to make position fix, fix type will give you a status string (2d or 3d).  
   
 7. "MASS_ERASE" command will erase all the data blocks on the device which contain,  

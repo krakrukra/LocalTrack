@@ -6,7 +6,7 @@ This device is an open source (both firmware and board level design) GPS data lo
 You mount it with built-in magnets on some vehicle, flip the power switch and the location  
 data is saved into internal flash storage. After some tracks were recorded, you can  
 retrieve the device again and extract GPX track files via USB. You can then pass these  
-files into mapping/analysis software of your choise, for example [viking](https://sourceforge.net/projects/viking), to get an  
+files into mapping/analysis software of your choice, for example [viking](https://sourceforge.net/projects/viking), to get an  
 easy to work with representation of recorded location data.  
   
 ![outside](extra/photos/outside.jpg)  
@@ -65,7 +65,7 @@ The firmware was developed on debian 11.3 system, using gcc-arm-none-eabi
 toolchain (compiler, linker, binutils) and it does use gcc specific extentions.  
 it was successfully compiled and tested with arm-none-eabi-gcc version 12.2.1  
   
-Depends on libgcc.a, which is included in this repository. linker script,  
+Depends on libgcc.a, which is included in this repository. Linker script,  
 startup code and openocd configuration files are included here as well.  
   
 For easy in-field updates, you can use the DFU bootloader. There is a dfu  
@@ -127,8 +127,4 @@ create a new github issue (check [closed issues](https://github.com/krakrukra/Lo
 also, you can check out my [youtube channel](https://www.youtube.com/channel/UC8HZCV1vNmZvp7ci1vNmj7g)  
   
 For extra security, you could use my PGP public key saved in [/extra/pubkey.asc](https://github.com/krakrukra/LocalTrack/blob/master/extra/pubkey.asc).  
-  
-#### if you want to buy:  
-  
-not available for sale yet; put store link here  
   

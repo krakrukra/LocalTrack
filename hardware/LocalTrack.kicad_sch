@@ -3752,7 +3752,7 @@
     (in_bom yes) (on_board yes)
     (uuid 00000000-0000-0000-0000-00005c7ee99f)
     (property "Reference" "U4" (id 0) (at 130.81 35.56 0))
-    (property "Value" "MCP73831T-2DCI" (id 1) (at 130.81 38.1 0))
+    (property "Value" "MCP73831T-2DCI/OT" (id 1) (at 130.81 38.1 0))
     (property "Footprint" "Package_TO_SOT_SMD:SOT-23-5" (id 2) (at 144.78 35.56 0)
       (effects (font (size 1.27 1.27) italic) (justify left) hide)
     )
@@ -4314,7 +4314,7 @@
     (in_bom yes) (on_board yes)
     (uuid 00000000-0000-0000-0000-00005e750ce5)
     (property "Reference" "SW1" (id 0) (at 232.41 16.891 0))
-    (property "Value" "KCD1-11" (id 1) (at 232.41 19.2024 0))
+    (property "Value" "KCD11-2P" (id 1) (at 232.41 19.2024 0))
     (property "Footprint" "LocalTrack:KCD1-11" (id 2) (at 232.41 22.86 0)
       (effects (font (size 1.27 1.27)) hide)
     )
@@ -4335,7 +4335,7 @@
     (in_bom yes) (on_board yes)
     (uuid 00000000-0000-0000-0000-00005e7726b0)
     (property "Reference" "U5" (id 0) (at 130.81 59.69 0))
-    (property "Value" "MCP73831T-2DCI" (id 1) (at 130.81 62.23 0))
+    (property "Value" "MCP73831T-2DCI/OT" (id 1) (at 130.81 62.23 0))
     (property "Footprint" "Package_TO_SOT_SMD:SOT-23-5" (id 2) (at 144.78 59.69 0)
       (effects (font (size 1.27 1.27) italic) (justify left) hide)
     )
@@ -5415,7 +5415,7 @@
       (reference "R20") (unit 1) (value "100k") (footprint "Resistor_SMD:R_0603_1608Metric")
     )
     (path "/00000000-0000-0000-0000-00005e750ce5"
-      (reference "SW1") (unit 1) (value "KCD1-11") (footprint "LocalTrack:KCD1-11")
+      (reference "SW1") (unit 1) (value "KCD11-2P") (footprint "LocalTrack:KCD1-11")
     )
     (path "/00000000-0000-0000-0000-00005f83d98d"
       (reference "TP1") (unit 1) (value "test pins") (footprint "LocalTrack:TestPins")
@@ -5430,10 +5430,10 @@
       (reference "U3") (unit 1) (value "STM32F072C8T6") (footprint "Package_QFP:LQFP-48_7x7mm_P0.5mm")
     )
     (path "/00000000-0000-0000-0000-00005c7ee99f"
-      (reference "U4") (unit 1) (value "MCP73831T-2DCI") (footprint "Package_TO_SOT_SMD:SOT-23-5")
+      (reference "U4") (unit 1) (value "MCP73831T-2DCI/OT") (footprint "Package_TO_SOT_SMD:SOT-23-5")
     )
     (path "/00000000-0000-0000-0000-00005e7726b0"
-      (reference "U5") (unit 1) (value "MCP73831T-2DCI") (footprint "Package_TO_SOT_SMD:SOT-23-5")
+      (reference "U5") (unit 1) (value "MCP73831T-2DCI/OT") (footprint "Package_TO_SOT_SMD:SOT-23-5")
     )
     (path "/00000000-0000-0000-0000-00005e670d47"
       (reference "U6") (unit 1) (value "W25N01GVZEIG") (footprint "LocalTrack:WSON-8_8x6mm")
